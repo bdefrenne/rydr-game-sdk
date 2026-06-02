@@ -57,6 +57,8 @@ export interface PlatformHostOptions {
   onLoadProgress?(progress: number): void;
   onExitRequest?(): void;
   onRouteChanged?(path: string): void;
+  /** The game asked to show/hide shell chrome (navbar). */
+  onChromeRequest?(visible: boolean): void;
   onActivityStart?(sport: string, name?: string): void;
   onActivityFinish?(summary?: ActivitySummary): void;
   onRequestHardwareModal?(): void;
@@ -143,6 +145,9 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
         break;
       case "rydr/route.changed":
         options.onRouteChanged?.(msg.path);
+        break;
+      case "rydr/ui.setChrome":
+        options.onChromeRequest?.(msg.visible);
         break;
       case "rydr/exitRequest":
         options.onExitRequest?.();

@@ -102,6 +102,12 @@ export interface RouteChangedMessage extends RydrTagged {
   path: string;
 }
 
+/** Game asks the shell to show/hide its chrome (e.g. hide the navbar during active play). */
+export interface SetChromeMessage extends RydrTagged {
+  type: "rydr/ui.setChrome";
+  visible: boolean;
+}
+
 /** Game asks the shell to exit it (return to the launcher). */
 export interface ExitRequestMessage extends RydrTagged {
   type: "rydr/exitRequest";
@@ -129,6 +135,7 @@ export type GameToPlatformMessage =
   | ActivityStartMessage
   | ActivityFinishMessage
   | RouteChangedMessage
+  | SetChromeMessage
   | ExitRequestMessage
   | RequestHardwareModalMessage
   | GameErrorMessage;
