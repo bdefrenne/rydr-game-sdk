@@ -1,0 +1,24 @@
+{
+  "name": "@rydr/game-sdk",
+  "version": "0.0.0",
+  "description": "Client SDK for building games on the RYDR indoor-cycling platform: the typed platform↔game wire protocol, a bridged hardware hook, RYDR UI components/tokens, and a local dev harness.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -w -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
