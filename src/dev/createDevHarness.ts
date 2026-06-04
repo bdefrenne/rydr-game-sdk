@@ -18,6 +18,7 @@ import type { Capability } from "../protocol/capabilities";
 import { ALL_CAPABILITIES } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName } from "../protocol/buttons";
+import type { BoardDefinition, BoardEntry, LeaderboardPage, SubmitScoreResult } from "../protocol/boards";
 import type { PlatformToGameMessage } from "../protocol/messages";
 import { RYDR_PROTOCOL_VERSION } from "../protocol/version";
 import { isGameToPlatformMessage } from "../protocol/guards";
@@ -37,6 +38,13 @@ export interface DevHarnessOptions {
   ui?: boolean;
   /** Hardware stream rate in Hz. Default 4. */
   streamHz?: number;
+  /**
+   * Leaderboard boards to expose (handed to the game in `welcome`). The harness
+   * keeps an in-memory store seeded with a few fake entries, so `submitScore`/
+   * `getLeaderboard` resolve plausibly while developing the results screen with
+   * no shell + no backend.
+   */
+  boards?: BoardDefinition[];
 }
 
 export interface DevHarness {
@@ -69,7 +77,40 @@ export function createDevHarness(options: DevHarnessOptions = {}): DevHarness {
 
   const identity: ScopedIdentity = { ...DEFAULT_IDENTITY, ...identityOverride };
   const state = { power: 0, cadence: 0, heartRate: 0, speed: 0 };
+  const boards = options.boards ?? [];
+  const runId = `dev-run-${Date.now()}`;
   let connected = false;
+
+  // In-memory mock leaderboard store: boardKey → playerId → raw entry. Seeded
+  // with fake rivals so the game's results screen has data to render in dev.
+  type StoredEntry = { playerId: string; displayName: string; value: number; ts: number };
+  const boardStore = new Map<string, Map<string, StoredEntry>>();
+  const boardKey = (boardId: string, key?: string): string => (key ? `${boardId}:${key}` : boardId);
+
+  const rankEntries = (boardId: string, raw: StoredEntry[]): BoardEntry[] => {
+    const def = boards.find((b) => b.id === boardId);
+    const sort = def?.sort ?? "desc";
+    return [...raw]
+      .sort((a, b) => (a.value === b.value ? a.ts - b.ts : sort === "asc" ? a.value - b.value : b.value - a.value))
+      .map((e, i) => ({ rank: i + 1, playerId: e.playerId, displayName: e.displayName, value: e.value, ts: e.ts }));
+  };
+
+  const seedBoard = (boardId: string, key?: string): Map<string, StoredEntry> => {
+    const k = boardKey(boardId, key);
+    let store = boardStore.get(k);
+    if (store) return store;
+    store = new Map();
+    const def = boards.find((b) => b.id === boardId);
+    const asc = def?.sort === "asc";
+    const names = ["Ada", "Ben", "Cy", "Dot", "Eve"];
+    names.forEach((name, i) => {
+      // asc (lower-wins, e.g. time): ascending seed values; desc: descending.
+      const value = asc ? 60_000 + i * 7_500 : 50 - i * 7;
+      store!.set(`seed-${i}`, { playerId: `seed-${i}`, displayName: name, value, ts: 1 + i });
+    });
+    boardStore.set(k, store);
+    return store;
+  };
 
   const post = (message: PlatformToGameMessage): void => {
     target.postMessage(message, origin);
@@ -90,11 +131,47 @@ export function createDevHarness(options: DevHarnessOptions = {}): DevHarness {
           grantedCapabilities: granted as Capability[],
           identity,
           initialPath,
+          boards,
+          runId,
         });
         post({ rydr: true, type: "rydr/trainer.status", connected: true, ergSupported: true });
         connected = true;
         break;
       }
+      case "rydr/leaderboard.submit": {
+        const def = boards.find((b) => b.id === msg.boardId);
+        const store = seedBoard(msg.boardId, msg.key);
+        const prev = store.get(identity.playerId);
+        const aggregate = def?.aggregate ?? "best";
+        const sort = def?.sort ?? "desc";
+        const better = (a: number, b: number): boolean => (sort === "asc" ? a < b : a > b);
+        let value = msg.value;
+        if (prev) {
+          if (aggregate === "best") value = better(msg.value, prev.value) ? msg.value : prev.value;
+          else if (aggregate === "sum") value = prev.value + msg.value;
+        }
+        const isPersonalBest = !prev || better(value, prev.value) || (aggregate === "sum");
+        store.set(identity.playerId, { playerId: identity.playerId, displayName: identity.displayName, value, ts: Date.now() });
+        const ranked = rankEntries(msg.boardId, [...store.values()]);
+        const mine = ranked.find((e) => e.playerId === identity.playerId);
+        const result: SubmitScoreResult = { rank: mine?.rank ?? 0, isPersonalBest, total: ranked.length };
+        post({ rydr: true, type: "rydr/leaderboard.submitResult", nonce: msg.nonce, result });
+        break;
+      }
+      case "rydr/leaderboard.query": {
+        const store = seedBoard(msg.boardId, msg.key);
+        const ranked = rankEntries(msg.boardId, [...store.values()]);
+        const limit = msg.limit ?? 10;
+        const page: LeaderboardPage = {
+          entries: ranked.slice(0, limit),
+          you: ranked.find((e) => e.playerId === identity.playerId),
+        };
+        post({ rydr: true, type: "rydr/leaderboard.queryResult", nonce: msg.nonce, entries: page.entries, you: page.you });
+        break;
+      }
+      case "rydr/run.save":
+        console.info("[dev-harness] run.save", msg.breakdown);
+        break;
       case "rydr/trainer.setSimulation":
         console.info("[dev-harness] trainer.setSimulation", msg.gradePercent, "%");
         break;
@@ -138,8 +215,10 @@ export function createDevHarness(options: DevHarnessOptions = {}): DevHarness {
       ArrowDown: "DOWN",
       ArrowLeft: "LEFT",
       ArrowRight: "RIGHT",
+      " ": "OK",
       Enter: "OK",
       Escape: "CANCEL",
+      Backspace: "CANCEL",
     };
     const name = map[e.key];
     if (name) pressButton(name);

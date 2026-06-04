@@ -13,6 +13,7 @@
 import type { Capability } from "./capabilities";
 import type { ScopedIdentity } from "./identity";
 import type { ButtonName, ButtonEdge } from "./buttons";
+import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards";
 
 /** Marker present on every SDK message. */
 interface RydrTagged {
@@ -103,6 +104,35 @@ export interface GameErrorMessage extends RydrTagged {
   message: string;
 }
 
+/**
+ * Game submits a score to a leaderboard. The shell performs the authenticated
+ * write (stamping playerId + runId) and replies with {@link LeaderboardSubmitResultMessage}
+ * carrying the same `nonce`. `key` selects a parameterized board family member
+ * (e.g. per-track): board `{boardId}:{key}`.
+ */
+export interface LeaderboardSubmitMessage extends RydrTagged {
+  type: "rydr/leaderboard.submit";
+  nonce: number;
+  boardId: string;
+  value: number;
+  key?: string;
+}
+
+/** Game reads a leaderboard. The shell fetches and replies with {@link LeaderboardQueryResultMessage}. */
+export interface LeaderboardQueryMessage extends RydrTagged {
+  type: "rydr/leaderboard.query";
+  nonce: number;
+  boardId: string;
+  key?: string;
+  limit?: number;
+}
+
+/** Game saves an opaque, game-specific run breakdown. Fire-and-forget; the shell stamps runId + playerId. */
+export interface RunSaveMessage extends RydrTagged {
+  type: "rydr/run.save";
+  breakdown: unknown;
+}
+
 export type GameToPlatformMessage =
   | HelloMessage
   | ReadyMessage
@@ -115,7 +145,10 @@ export type GameToPlatformMessage =
   | SetChromeMessage
   | ExitRequestMessage
   | RequestHardwareModalMessage
-  | GameErrorMessage;
+  | GameErrorMessage
+  | LeaderboardSubmitMessage
+  | LeaderboardQueryMessage
+  | RunSaveMessage;
 
 // ============================================================
 // Platform → Game
@@ -129,6 +162,10 @@ export interface WelcomeMessage extends RydrTagged {
   identity: ScopedIdentity;
   /** Initial deep-link path the game should route to, if any. */
   initialPath?: string;
+  /** The game's declared leaderboard boards (catalog), so the SDK can validate ids + format. */
+  boards?: BoardDefinition[];
+  /** The run this session is recorded under (links score/run to the shell's FIT activity). */
+  runId?: string;
 }
 
 /** Rejects the handshake (e.g. unknown game, unsupported protocol, denied capabilities). */
@@ -207,6 +244,21 @@ export interface PingMessage extends RydrTagged {
   nonce: number;
 }
 
+/** Reply to {@link LeaderboardSubmitMessage} (matched by `nonce`). */
+export interface LeaderboardSubmitResultMessage extends RydrTagged {
+  type: "rydr/leaderboard.submitResult";
+  nonce: number;
+  result: SubmitScoreResult;
+}
+
+/** Reply to {@link LeaderboardQueryMessage} (matched by `nonce`). */
+export interface LeaderboardQueryResultMessage extends RydrTagged {
+  type: "rydr/leaderboard.queryResult";
+  nonce: number;
+  entries: BoardEntry[];
+  you?: BoardEntry;
+}
+
 export type PlatformToGameMessage =
   | WelcomeMessage
   | RejectMessage
@@ -220,7 +272,9 @@ export type PlatformToGameMessage =
   | TrainerStatusMessage
   | LifecyclePauseMessage
   | LifecycleResumeMessage
-  | PingMessage;
+  | PingMessage
+  | LeaderboardSubmitResultMessage
+  | LeaderboardQueryResultMessage;
 
 /** Any message in the protocol. */
 export type RydrMessage = GameToPlatformMessage | PlatformToGameMessage;

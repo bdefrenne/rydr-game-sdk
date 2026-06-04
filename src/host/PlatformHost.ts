@@ -11,6 +11,7 @@
 import type { Capability } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons";
+import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards";
 import type { PlatformToGameMessage } from "../protocol/messages";
 import { RYDR_PROTOCOL_VERSION } from "../protocol/version";
 import { isGameToPlatformMessage } from "../protocol/guards";
@@ -52,6 +53,10 @@ export interface PlatformHostOptions {
   grantFor?(gameId: string, requested: Capability[]): Capability[];
   /** Initial deep-link path to hand the game. */
   initialPath?: string;
+  /** The game's declared leaderboard boards (from its manifest), handed over in `welcome`. */
+  boards?: BoardDefinition[];
+  /** The run id this session is recorded under, handed over in `welcome`. */
+  runId?: string;
 
   onReady?(): void;
   onLoadProgress?(progress: number): void;
@@ -61,6 +66,12 @@ export interface PlatformHostOptions {
   onChromeRequest?(visible: boolean): void;
   onRequestHardwareModal?(): void;
   onError?(message: string): void;
+  /** The game submitted a score; perform the authenticated write and return the rank/PB. */
+  onSubmitScore?(boardId: string, value: number, key?: string): Promise<SubmitScoreResult>;
+  /** The game requested a leaderboard page; fetch and return it. */
+  onGetLeaderboard?(boardId: string, opts: { key?: string; limit?: number }): Promise<LeaderboardPage>;
+  /** The game saved an opaque run breakdown; persist it against the run id. */
+  onSaveRun?(breakdown: unknown): void;
 }
 
 export interface PlatformHost {
@@ -113,6 +124,8 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           grantedCapabilities: granted,
           identity: identityFor(msg.gameId),
           initialPath: options.initialPath,
+          boards: options.boards,
+          runId: options.runId,
         });
         const status = hardware.getStatus();
         post({ rydr: true, type: "rydr/trainer.status", connected: status.connected, ergSupported: status.ergSupported });
@@ -152,6 +165,35 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
         break;
       case "rydr/error":
         options.onError?.(msg.message);
+        break;
+      case "rydr/leaderboard.submit": {
+        const { nonce } = msg;
+        const handler =
+          options.onSubmitScore ??
+          (async (): Promise<SubmitScoreResult> => ({ rank: 0, isPersonalBest: false, total: 0 }));
+        void handler(msg.boardId, msg.value, msg.key)
+          .then((result) => post({ rydr: true, type: "rydr/leaderboard.submitResult", nonce, result }))
+          .catch((err) => {
+            console.error("[rydr-host] submitScore failed:", err);
+            post({ rydr: true, type: "rydr/leaderboard.submitResult", nonce, result: { rank: 0, isPersonalBest: false, total: 0 } });
+          });
+        break;
+      }
+      case "rydr/leaderboard.query": {
+        const { nonce } = msg;
+        const handler =
+          options.onGetLeaderboard ??
+          (async (): Promise<LeaderboardPage> => ({ entries: [] }));
+        void handler(msg.boardId, { key: msg.key, limit: msg.limit })
+          .then((page) => post({ rydr: true, type: "rydr/leaderboard.queryResult", nonce, entries: page.entries, you: page.you }))
+          .catch((err) => {
+            console.error("[rydr-host] getLeaderboard failed:", err);
+            post({ rydr: true, type: "rydr/leaderboard.queryResult", nonce, entries: [] });
+          });
+        break;
+      }
+      case "rydr/run.save":
+        options.onSaveRun?.(msg.breakdown);
         break;
     }
   };

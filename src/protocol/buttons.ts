@@ -7,7 +7,7 @@
  * games decoupled from hardware specifics and is the same vocabulary the
  * platform's input layer already uses.
  */
-export type ButtonName = "OK" | "UP" | "DOWN" | "LEFT" | "RIGHT" | "CANCEL" | "RETRY";
+export type ButtonName = "OK" | "UP" | "DOWN" | "LEFT" | "RIGHT" | "CANCEL";
 
 /** Press = "down", release = "up". A held button emits one of each. */
 export type ButtonEdge = "down" | "up";

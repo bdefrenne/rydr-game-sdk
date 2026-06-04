@@ -26,6 +26,8 @@ const PLATFORM_TO_GAME_TYPES: ReadonlySet<string> = new Set([
   "rydr/lifecycle.pause",
   "rydr/lifecycle.resume",
   "rydr/ping",
+  "rydr/leaderboard.submitResult",
+  "rydr/leaderboard.queryResult",
 ]);
 
 /** True if `x` is any SDK protocol message. */

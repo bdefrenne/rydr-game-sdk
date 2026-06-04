@@ -10,6 +10,11 @@ import { RYDR_PROTOCOL_VERSION, RYDR_SDK_VERSION } from "../protocol/version";
 import { ALL_CAPABILITIES, type Capability } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons";
+import type {
+  BoardDefinition,
+  LeaderboardPage,
+  SubmitScoreResult,
+} from "../protocol/boards";
 import type { GameToPlatformMessage, WelcomeMessage } from "../protocol/messages";
 import { isPlatformToGameMessage } from "../protocol/guards";
 import { HardwareStore } from "./HardwareStore";
@@ -50,6 +55,10 @@ export interface PlatformSession {
   readonly initialPath: string | undefined;
   /** Reactive bridged hardware state. */
   readonly hardware: HardwareStore;
+  /** The game's declared leaderboard boards (catalog from the manifest). */
+  readonly boards: readonly BoardDefinition[];
+  /** The run this session is recorded under (links score/run to the FIT activity). */
+  readonly runId: string;
 
   /** Tell the shell the game has loaded and is ready to be shown. */
   ready(): void;
@@ -65,6 +74,18 @@ export interface PlatformSession {
 
   // Note: there is NO activity/FIT API. The platform records every session
   // automatically from its own hardware stream — games do nothing.
+
+  /**
+   * Submit a score to a leaderboard `boardId` (must be one of {@link boards}).
+   * The shell performs the authenticated write (stamping playerId + runId).
+   * Resolves with the player's rank/PB after the submit, for a results screen.
+   * `opts.key` selects a parameterized board family member (e.g. per-track).
+   */
+  submitScore(boardId: string, value: number, opts?: { key?: string }): Promise<SubmitScoreResult>;
+  /** Read a leaderboard page (top-N + the requester's own row). */
+  getLeaderboard(boardId: string, opts?: { key?: string; limit?: number }): Promise<LeaderboardPage>;
+  /** Save an opaque, game-specific run breakdown against this session's runId. Fire-and-forget. */
+  saveRun(breakdown: unknown): void;
 
   /** Tell the shell the game's internal route changed (for URL projection). */
   setRoute(path: string): void;
@@ -117,6 +138,28 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
   const resumeListeners: Emitter<void> = new Set();
   const identityListeners: Emitter<ScopedIdentity> = new Set();
 
+  // Generic request/response over postMessage: each request carries a `nonce`;
+  // the shell replies with a `*Result` message carrying the same nonce, which
+  // resolves the pending promise. Shared by submitScore + getLeaderboard.
+  const pending = new Map<number, (value: unknown) => void>();
+  let nextNonce = 1;
+  const REQUEST_TIMEOUT_MS = 10_000;
+  const request = <T>(send: (nonce: number) => void): Promise<T> => {
+    const nonce = nextNonce++;
+    return new Promise<T>((resolveReq, rejectReq) => {
+      const timer = setTimeout(() => {
+        pending.delete(nonce);
+        rejectReq(new Error("Platform request timed out"));
+      }, REQUEST_TIMEOUT_MS);
+      pending.set(nonce, (value) => {
+        clearTimeout(timer);
+        pending.delete(nonce);
+        resolveReq(value as T);
+      });
+      send(nonce);
+    });
+  };
+
   const post = (message: GameToPlatformMessage): void => {
     target.postMessage(message, platformOrigin);
   };
@@ -126,6 +169,14 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
     let identity: ScopedIdentity | null = null;
     let grantedCapabilities: readonly Capability[] = [];
     let initialPath: string | undefined;
+    let boards: readonly BoardDefinition[] = [];
+    let runId = "";
+
+    const knownBoard = (boardId: string): boolean => {
+      const ok = boards.some((b) => b.id === boardId);
+      if (!ok) console.warn(`[rydr-sdk] unknown boardId "${boardId}" — not in the game's manifest boards`);
+      return ok;
+    };
 
     const onMessage = (event: MessageEvent): void => {
       if (platformOrigin !== "*" && event.origin !== platformOrigin) return;
@@ -142,6 +193,8 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
           identity = welcome.identity;
           grantedCapabilities = welcome.grantedCapabilities;
           initialPath = welcome.initialPath;
+          boards = welcome.boards ?? [];
+          runId = welcome.runId ?? "";
           resolve(session);
           break;
         }
@@ -190,6 +243,12 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         case "rydr/ping":
           post({ rydr: true, type: "rydr/pong", nonce: msg.nonce });
           break;
+        case "rydr/leaderboard.submitResult":
+          pending.get(msg.nonce)?.(msg.result);
+          break;
+        case "rydr/leaderboard.queryResult":
+          pending.get(msg.nonce)?.({ entries: msg.entries, you: msg.you } as LeaderboardPage);
+          break;
       }
     };
 
@@ -228,12 +287,31 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
       get initialPath(): string | undefined {
         return initialPath;
       },
+      get boards(): readonly BoardDefinition[] {
+        return boards;
+      },
+      get runId(): string {
+        return runId;
+      },
       hardware,
       ready: () => post({ rydr: true, type: "rydr/ready" }),
       reportLoadProgress: (progress) => post({ rydr: true, type: "rydr/loadProgress", progress }),
       setSimulation: (gradePercent) => post({ rydr: true, type: "rydr/trainer.setSimulation", gradePercent }),
       setTargetPower: (watts) => post({ rydr: true, type: "rydr/trainer.setTargetPower", watts }),
       setErgMode: (enabled) => post({ rydr: true, type: "rydr/trainer.setErgMode", enabled }),
+      submitScore: (boardId, value, opts) => {
+        knownBoard(boardId);
+        return request<SubmitScoreResult>((nonce) =>
+          post({ rydr: true, type: "rydr/leaderboard.submit", nonce, boardId, value, key: opts?.key }),
+        );
+      },
+      getLeaderboard: (boardId, opts) => {
+        knownBoard(boardId);
+        return request<LeaderboardPage>((nonce) =>
+          post({ rydr: true, type: "rydr/leaderboard.query", nonce, boardId, key: opts?.key, limit: opts?.limit }),
+        );
+      },
+      saveRun: (breakdown) => post({ rydr: true, type: "rydr/run.save", breakdown }),
       setRoute: (path) => post({ rydr: true, type: "rydr/route.changed", path }),
       setChrome: (visible) => post({ rydr: true, type: "rydr/ui.setChrome", visible }),
       requestExit: () => post({ rydr: true, type: "rydr/exitRequest" }),
@@ -263,6 +341,7 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         pauseListeners.clear();
         resumeListeners.clear();
         identityListeners.clear();
+        pending.clear();
       },
     };
   });
