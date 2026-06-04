@@ -8,7 +8,22 @@ This package is the **public contract** between platform and game:
 
 - `protocol/` — the versionless wire protocol: handshake, capabilities, scoped identity, hardware/lifecycle messages, type guards. **Treat as a public API — additive changes only.**
 - `client/` — `connectToPlatform()` → a `PlatformSession` exposing a reactive hardware store, scoped identity, and trainer-control commands.
+- `host/` — `createPlatformHost()`: the **platform side** of the protocol (used by the shell to embed a game).
 - `dev/` — `createDevHarness()`: a stand-in platform (power/HR/cadence sliders, fake profile) so a game runs standalone with no shell and no trainer.
+
+## Install
+
+Public git dependency (no registry, no token):
+
+```jsonc
+// package.json
+"dependencies": { "@rydr/game-sdk": "github:bdefrenne/rydr-game-sdk#semver:^1.0.0" }
+```
+
+**Starting a new game?** Don't wire this by hand — scaffold from
+[`create-rydr-game`](https://github.com/bdefrenne/create-rydr-game) (`npx degit
+bdefrenne/create-rydr-game my-game`), which comes with the SDK wired, a dev script, and an
+agent-runnable `SETUP.md`.
 
 ## The boundary
 
