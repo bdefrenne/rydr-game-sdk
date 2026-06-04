@@ -50,6 +50,35 @@ session.setSimulation(4.2); // request 4.2% grade on the trainer
 session.ready();
 ```
 
+## API reference
+
+`connectToPlatform(options)` → `Promise<PlatformSession>`. Options:
+`{ gameId: string; capabilities: Capability[]; platformOrigin?: string; target?: Window; handshakeTimeoutMs?: number }`.
+
+`Capability` = `"power" | "cadence" | "heartRate" | "speed" | "buttons" | "identity"`.
+
+### PlatformSession
+- `identity: ScopedIdentity` — `{ playerId, displayName: string; weightKg, ftp: number }` (PII-free).
+- `grantedCapabilities: readonly Capability[]` · `initialPath: string | undefined`.
+- `hardware: HardwareStore` — `current: HardwareSnapshot`, and `subscribe(cb) => () => void` (fires immediately, then on every change).
+- `ready()` · `reportLoadProgress(0..100)` · `reportError(message)`.
+- `setSimulation(gradePercent)` · `setTargetPower(watts)` · `setErgMode(enabled)` — trainer control.
+- `startActivity(sport, name?)` · `finishActivity(summary?)` — **the platform records the FIT**; the game just brackets it.
+- `setRoute(path)` · `setChrome(visible)` · `requestExit()` · `requestHardwareModal()`.
+- `onButton(cb)` · `onPause(cb)` · `onResume(cb)` · `onIdentityChange(cb)` — each returns an unsubscribe fn.
+- `dispose()`.
+
+`HardwareSnapshot` = `{ power, cadence, heartRate, speed: number; trainerConnected, ergSupported: boolean; updatedAt: number }`
+— power W · cadence rpm · heartRate bpm (0 with no HRM) · speed m/s · updatedAt ms.
+
+`ButtonEvent` = `{ name: ButtonName; edge: "down" | "up" }` (see `protocol/buttons.ts` for the `ButtonName` union).
+
+### Standalone dev
+`createDevHarness(options?)` stands up a mock platform (sliders + fake identity) so a game runs with no shell:
+`{ ui?: boolean; grant?: Capability[]; identity?: Partial<ScopedIdentity>; initialPath?: string; streamHz?: number }`.
+
+> The compiled types in `dist/index.d.ts` are authoritative — this section is the overview.
+
 ## Versioning
 
 `RYDR_PROTOCOL_VERSION` is the wire version. The shell supports a range and adapts older messages. Breaking shape changes are forbidden; evolve additively.
