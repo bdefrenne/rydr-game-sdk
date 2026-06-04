@@ -10,11 +10,7 @@ import { RYDR_PROTOCOL_VERSION, RYDR_SDK_VERSION } from "../protocol/version";
 import { ALL_CAPABILITIES, type Capability } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons";
-import type {
-  ActivitySummary,
-  GameToPlatformMessage,
-  WelcomeMessage,
-} from "../protocol/messages";
+import type { GameToPlatformMessage, WelcomeMessage } from "../protocol/messages";
 import { isPlatformToGameMessage } from "../protocol/guards";
 import { HardwareStore } from "./HardwareStore";
 
@@ -67,10 +63,8 @@ export interface PlatformSession {
   /** Toggle ERG mode. */
   setErgMode(enabled: boolean): void;
 
-  /** Mark the start of a recorded activity (platform records from its own stream). */
-  startActivity(sport: string, name?: string): void;
-  /** Mark the end of a recorded activity. */
-  finishActivity(summary?: ActivitySummary): void;
+  // Note: there is NO activity/FIT API. The platform records every session
+  // automatically from its own hardware stream — games do nothing.
 
   /** Tell the shell the game's internal route changed (for URL projection). */
   setRoute(path: string): void;
@@ -240,8 +234,6 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
       setSimulation: (gradePercent) => post({ rydr: true, type: "rydr/trainer.setSimulation", gradePercent }),
       setTargetPower: (watts) => post({ rydr: true, type: "rydr/trainer.setTargetPower", watts }),
       setErgMode: (enabled) => post({ rydr: true, type: "rydr/trainer.setErgMode", enabled }),
-      startActivity: (sport, name) => post({ rydr: true, type: "rydr/activity.start", sport, name }),
-      finishActivity: (summary) => post({ rydr: true, type: "rydr/activity.finish", summary }),
       setRoute: (path) => post({ rydr: true, type: "rydr/route.changed", path }),
       setChrome: (visible) => post({ rydr: true, type: "rydr/ui.setChrome", visible }),
       requestExit: () => post({ rydr: true, type: "rydr/exitRequest" }),

@@ -27,14 +27,6 @@ export interface PowerSample {
   t: number;
 }
 
-/** Minimal activity summary a game may pass when finishing a recording. The platform owns FIT generation. */
-export interface ActivitySummary {
-  sport: string;
-  durationMs: number;
-  /** Optional game-supplied rollups; the platform does not depend on these. */
-  [key: string]: unknown;
-}
-
 // ============================================================
 // Game → Platform
 // ============================================================
@@ -83,19 +75,6 @@ export interface TrainerSetErgModeMessage extends RydrTagged {
   enabled: boolean;
 }
 
-/** Mark the start of a recorded activity (the platform records from its own hardware stream). */
-export interface ActivityStartMessage extends RydrTagged {
-  type: "rydr/activity.start";
-  sport: string;
-  name?: string;
-}
-
-/** Mark the end of a recorded activity. */
-export interface ActivityFinishMessage extends RydrTagged {
-  type: "rydr/activity.finish";
-  summary?: ActivitySummary;
-}
-
 /** Game's internal route changed; the shell reflects it into the top-level URL. */
 export interface RouteChangedMessage extends RydrTagged {
   type: "rydr/route.changed";
@@ -132,8 +111,6 @@ export type GameToPlatformMessage =
   | TrainerSetSimulationMessage
   | TrainerSetTargetPowerMessage
   | TrainerSetErgModeMessage
-  | ActivityStartMessage
-  | ActivityFinishMessage
   | RouteChangedMessage
   | SetChromeMessage
   | ExitRequestMessage

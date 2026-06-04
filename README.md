@@ -61,8 +61,10 @@ exists but defaults to ALL; you don't set it.)
 - `hardware: HardwareStore` — `current: HardwareSnapshot`, and `subscribe(cb) => () => void` (fires immediately, then on every change).
 - `ready()` · `reportLoadProgress(0..100)` · `reportError(message)`.
 - `setSimulation(gradePercent)` · `setTargetPower(watts)` · `setErgMode(enabled)` — trainer control.
-- `startActivity(sport, name?)` · `finishActivity(summary?)` — **the platform records the FIT**; the game just brackets it.
 - `setRoute(path)` · `setChrome(visible)` · `requestExit()` · `requestHardwareModal()`.
+
+> **No activity/FIT API.** The platform records every session automatically from its own hardware stream — games do nothing for recording.
+
 - `onButton(cb)` · `onPause(cb)` · `onResume(cb)` · `onIdentityChange(cb)` — each returns an unsubscribe fn.
 - `dispose()`.
 

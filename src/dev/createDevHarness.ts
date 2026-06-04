@@ -104,12 +104,6 @@ export function createDevHarness(options: DevHarnessOptions = {}): DevHarness {
       case "rydr/trainer.setErgMode":
         console.info("[dev-harness] trainer.setErgMode", msg.enabled);
         break;
-      case "rydr/activity.start":
-        console.info("[dev-harness] activity.start", msg.sport, msg.name ?? "");
-        break;
-      case "rydr/activity.finish":
-        console.info("[dev-harness] activity.finish", msg.summary ?? "");
-        break;
       case "rydr/exitRequest":
         console.info("[dev-harness] exitRequest (no launcher in dev)");
         break;

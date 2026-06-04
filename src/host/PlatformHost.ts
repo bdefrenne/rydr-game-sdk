@@ -11,7 +11,7 @@
 import type { Capability } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons";
-import type { ActivitySummary, PlatformToGameMessage } from "../protocol/messages";
+import type { PlatformToGameMessage } from "../protocol/messages";
 import { RYDR_PROTOCOL_VERSION } from "../protocol/version";
 import { isGameToPlatformMessage } from "../protocol/guards";
 
@@ -59,8 +59,6 @@ export interface PlatformHostOptions {
   onRouteChanged?(path: string): void;
   /** The game asked to show/hide shell chrome (navbar). */
   onChromeRequest?(visible: boolean): void;
-  onActivityStart?(sport: string, name?: string): void;
-  onActivityFinish?(summary?: ActivitySummary): void;
   onRequestHardwareModal?(): void;
   onError?(message: string): void;
 }
@@ -136,12 +134,6 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
         break;
       case "rydr/trainer.setErgMode":
         hardware.setErgMode(msg.enabled);
-        break;
-      case "rydr/activity.start":
-        options.onActivityStart?.(msg.sport, msg.name);
-        break;
-      case "rydr/activity.finish":
-        options.onActivityFinish?.(msg.summary);
         break;
       case "rydr/route.changed":
         options.onRouteChanged?.(msg.path);
