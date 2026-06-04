@@ -39,10 +39,8 @@ The game↔engine protocol *inside* a game (e.g. racing's Three.js engine iframe
 ```ts
 import { connectToPlatform } from "@rydr/game-sdk";
 
-const session = await connectToPlatform({
-  gameId: "racing",
-  capabilities: ["power", "cadence", "heartRate", "buttons", "identity"],
-});
+// Games get FULL access — you don't pick capabilities. Just pass your gameId.
+const session = await connectToPlatform({ gameId: "racing" });
 
 session.hardware.subscribe((hw) => render(hw.power, hw.heartRate));
 session.onButton(({ name, edge }) => handleInput(name, edge));
@@ -53,9 +51,9 @@ session.ready();
 ## API reference
 
 `connectToPlatform(options)` → `Promise<PlatformSession>`. Options:
-`{ gameId: string; capabilities: Capability[]; platformOrigin?: string; target?: Window; handshakeTimeoutMs?: number }`.
-
-`Capability` = `"power" | "cadence" | "heartRate" | "speed" | "buttons" | "identity"`.
+`{ gameId: string; platformOrigin?: string; target?: Window; handshakeTimeoutMs?: number }`.
+**Games get full access — there's no capability selection.** (`capabilities?: Capability[]`
+exists but defaults to ALL; you don't set it.)
 
 ### PlatformSession
 - `identity: ScopedIdentity` — `{ playerId, displayName: string; weightKg, ftp: number }` (PII-free).

@@ -7,7 +7,7 @@
  * touches `postMessage`, BLE, or PII directly.
  */
 import { RYDR_PROTOCOL_VERSION, RYDR_SDK_VERSION } from "../protocol/version";
-import type { Capability } from "../protocol/capabilities";
+import { ALL_CAPABILITIES, type Capability } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons";
 import type {
@@ -27,8 +27,11 @@ export interface ButtonEvent {
 export interface ConnectOptions {
   /** Stable game id, matching the game's platform manifest. */
   gameId: string;
-  /** Capabilities the game needs. The shell grants a subset (least-privilege). */
-  capabilities: Capability[];
+  /**
+   * Capabilities to request. Optional — defaults to ALL. Games get full access; the
+   * platform doesn't ask games to pick. (Field kept for forward-compat / tests.)
+   */
+  capabilities?: Capability[];
   /**
    * Origin the shell is served from. Messages from any other origin are ignored,
    * and outbound messages are posted only to this origin. Defaults to `"*"`
@@ -108,7 +111,7 @@ function emit<T>(set: Emitter<T>, value: T): void {
 export function connectToPlatform(options: ConnectOptions): Promise<PlatformSession> {
   const {
     gameId,
-    capabilities,
+    capabilities = [...ALL_CAPABILITIES],
     platformOrigin = "*",
     target = window.parent,
     handshakeTimeoutMs = 15_000,
