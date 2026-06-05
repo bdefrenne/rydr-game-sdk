@@ -96,6 +96,12 @@ export interface PlatformHostOptions {
   onGameData?(op: GameDataOp): Promise<GameDataResult>;
   /** The game requested a presigned upload URL for a binary asset; mint and return it. */
   onGetUploadUrl?(req: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl?: string; url?: string; error?: string }>;
+  /** The game saved an opaque replay/ghost blob (base64) keyed by `runId`; persist it. */
+  onSaveReplay?(runId: string, blob: string): Promise<{ ok?: boolean; error?: string }>;
+  /** The game requested a stored replay blob by `runId`; fetch and return it (`null` if absent). */
+  onGetReplay?(runId: string): Promise<{ blob?: string | null; error?: string }>;
+  /** The game requested a stored run breakdown by `runId`; fetch and return it. */
+  onGetRun?(runId: string): Promise<{ breakdown?: unknown; error?: string }>;
 }
 
 export interface PlatformHost {
@@ -252,6 +258,42 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           .catch((err) => {
             console.error("[rydr-host] asset.uploadUrl failed:", err);
             post({ rydr: true, type: "rydr/asset.uploadUrlResult", nonce, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/replay.save": {
+        const { nonce } = msg;
+        const handler =
+          options.onSaveReplay ?? (async (): Promise<{ error: string }> => ({ error: "replays not supported" }));
+        void handler(msg.runId, msg.blob)
+          .then((r) => post({ rydr: true, type: "rydr/replay.result", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] saveReplay failed:", err);
+            post({ rydr: true, type: "rydr/replay.result", nonce, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/replay.get": {
+        const { nonce } = msg;
+        const handler =
+          options.onGetReplay ?? (async (): Promise<{ error: string }> => ({ error: "replays not supported" }));
+        void handler(msg.runId)
+          .then((r) => post({ rydr: true, type: "rydr/replay.result", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] getReplay failed:", err);
+            post({ rydr: true, type: "rydr/replay.result", nonce, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/run.get": {
+        const { nonce } = msg;
+        const handler =
+          options.onGetRun ?? (async (): Promise<{ error: string }> => ({ error: "run.get not supported" }));
+        void handler(msg.runId)
+          .then((r) => post({ rydr: true, type: "rydr/run.result", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] getRun failed:", err);
+            post({ rydr: true, type: "rydr/run.result", nonce, error: String(err) });
           });
         break;
       }

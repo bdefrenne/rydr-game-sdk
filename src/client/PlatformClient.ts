@@ -16,7 +16,15 @@ import type {
   SubmitScoreResult,
 } from "../protocol/boards";
 import type { GameDoc, GameDataScope } from "../protocol/gamedata";
-import type { GameToPlatformMessage, WelcomeMessage, GameDataResultMessage, AssetUploadUrlResultMessage } from "../protocol/messages";
+import type { ReplayRef } from "../protocol/replays";
+import type {
+  GameToPlatformMessage,
+  WelcomeMessage,
+  GameDataResultMessage,
+  AssetUploadUrlResultMessage,
+  ReplayResultMessage,
+  RunGetResultMessage,
+} from "../protocol/messages";
 import { isPlatformToGameMessage } from "../protocol/guards";
 import { HardwareStore } from "./HardwareStore";
 import { createRoom, createLoopbackRoom, type RoomHandle } from "./Room";
@@ -90,6 +98,23 @@ export interface PlatformSession {
   getLeaderboard(boardId: string, opts?: { key?: string; limit?: number }): Promise<LeaderboardPage>;
   /** Save an opaque, game-specific run breakdown against this session's runId. Fire-and-forget. */
   saveRun(breakdown: unknown): void;
+  /** Read back an opaque run breakdown by `runId` (e.g. a leaderboard entry's `runId`). `null` if absent. */
+  getRun(runId: string): Promise<unknown | null>;
+
+  // ── Replays / ghosts (opaque blobs keyed by runId; relayed through the shell) ──
+  /**
+   * Save an opaque replay/ghost blob — a base64 string of the game's compressed time-series —
+   * keyed by `runId` (default the session's own {@link runId}). A replay aligns to a leaderboard
+   * entry through the shared `runId`, so it can be fetched back as the ghost for that standing.
+   */
+  saveReplay(runId: string, blob: string): Promise<void>;
+  /**
+   * Fetch the replays for a board's top entries (the "ghosts"). Reads the leaderboard page, then
+   * fetches each ranked entry's stored blob. `opts.key` selects a parameterized board member
+   * (e.g. per-track); `opts.top` bounds how many entries (default 10). Entries without a stored
+   * replay come back with `blob: null`.
+   */
+  getReplays(boardId: string, opts?: { key?: string; top?: number }): Promise<ReplayRef[]>;
 
   // ── Generic game-data store (opaque docs; relayed through the shell) ──
   /** Read dev-authored shared content (public). */
@@ -212,6 +237,15 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
       post({ rydr: true, type: "rydr/gamedata.list", nonce, scope, collection }),
     ).then(throwIfError).then((r) => r.docs ?? []);
 
+  // replay helper (relayed req/res). save→ok, get→blob; `error` rejects.
+  const replayGet = (runId: string): Promise<string | null> =>
+    request<ReplayResultMessage>((nonce) =>
+      post({ rydr: true, type: "rydr/replay.get", nonce, runId }),
+    ).then((r) => {
+      if (r.error) throw new Error(`[rydr-sdk] getReplay: ${r.error}`);
+      return r.blob ?? null;
+    });
+
   return new Promise<PlatformSession>((resolve, reject) => {
     let settled = false;
     let identity: ScopedIdentity | null = null;
@@ -305,6 +339,12 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         case "rydr/asset.uploadUrlResult":
           pending.get(msg.nonce)?.(msg);
           break;
+        case "rydr/replay.result":
+          pending.get(msg.nonce)?.(msg);
+          break;
+        case "rydr/run.result":
+          pending.get(msg.nonce)?.(msg);
+          break;
       }
     };
 
@@ -371,6 +411,36 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         );
       },
       saveRun: (breakdown) => post({ rydr: true, type: "rydr/run.save", breakdown }),
+      getRun: (runId) =>
+        request<RunGetResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/run.get", nonce, runId }),
+        ).then((r) => {
+          if (r.error) throw new Error(`[rydr-sdk] getRun: ${r.error}`);
+          return r.breakdown ?? null;
+        }),
+      saveReplay: (runId, blob) =>
+        request<ReplayResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/replay.save", nonce, runId, blob }),
+        ).then((r) => {
+          if (r.error) throw new Error(`[rydr-sdk] saveReplay: ${r.error}`);
+        }),
+      getReplays: async (boardId, opts) => {
+        knownBoard(boardId);
+        const page = await request<LeaderboardPage>((nonce) =>
+          post({ rydr: true, type: "rydr/leaderboard.query", nonce, boardId, key: opts?.key, limit: opts?.top ?? 10 }),
+        );
+        // Each ranked entry that carries a runId maps to a (possibly absent) stored replay blob.
+        const ranked = page.entries.filter((e): e is typeof e & { runId: string } => !!e.runId);
+        return Promise.all(
+          ranked.map(async (e) => ({
+            runId: e.runId,
+            rank: e.rank,
+            displayName: e.displayName,
+            value: e.value,
+            blob: await replayGet(e.runId),
+          })),
+        );
+      },
       getContent: (collection, id) => gamedataGet("shared", collection, id),
       listContent: (collection) => gamedataList("shared", collection),
       getData: (collection, id, opts) => gamedataGet(opts?.scope ?? "player", collection, id),

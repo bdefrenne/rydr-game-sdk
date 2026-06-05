@@ -180,6 +180,35 @@ export interface AssetUploadUrlMessage extends RydrTagged {
   contentType?: string;
 }
 
+/**
+ * Save an opaque replay/ghost blob (a base64 string of the game's compressed time-series)
+ * keyed by `runId`. The shell relays the authenticated write to the `replays` party (stamping
+ * playerId). A replay aligns to a leaderboard entry via the shared `runId`. Reply:
+ * {@link ReplayResultMessage} (`ok`).
+ */
+export interface ReplaySaveMessage extends RydrTagged {
+  type: "rydr/replay.save";
+  nonce: number;
+  runId: string;
+  /** base64 string of the game's compressed replay/ghost time-series. */
+  blob: string;
+}
+
+/** Fetch a stored replay blob by `runId`. Reply: {@link ReplayResultMessage} (`blob`, `null` if absent). */
+export interface ReplayGetMessage extends RydrTagged {
+  type: "rydr/replay.get";
+  nonce: number;
+  runId: string;
+}
+
+/** Read back an opaque run breakdown by `runId` (the one saved via {@link RunSaveMessage}).
+ *  Reply: {@link RunGetResultMessage}. */
+export interface RunGetMessage extends RydrTagged {
+  type: "rydr/run.get";
+  nonce: number;
+  runId: string;
+}
+
 export type GameToPlatformMessage =
   | HelloMessage
   | ReadyMessage
@@ -200,7 +229,10 @@ export type GameToPlatformMessage =
   | GameDataListMessage
   | GameDataSaveMessage
   | GameDataDeleteMessage
-  | AssetUploadUrlMessage;
+  | AssetUploadUrlMessage
+  | ReplaySaveMessage
+  | ReplayGetMessage
+  | RunGetMessage;
 
 // ============================================================
 // Platform → Game
@@ -334,6 +366,24 @@ export interface AssetUploadUrlResultMessage extends RydrTagged {
   error?: string;
 }
 
+/** Reply to {@link ReplaySaveMessage} / {@link ReplayGetMessage} (matched by `nonce`):
+ *  save→`ok`; get→`blob` (`null` when not found). `error` set on failure. */
+export interface ReplayResultMessage extends RydrTagged {
+  type: "rydr/replay.result";
+  nonce: number;
+  ok?: boolean;
+  blob?: string | null;
+  error?: string;
+}
+
+/** Reply to {@link RunGetMessage} (matched by `nonce`): the opaque `breakdown`, or `null` if absent. */
+export interface RunGetResultMessage extends RydrTagged {
+  type: "rydr/run.result";
+  nonce: number;
+  breakdown?: unknown;
+  error?: string;
+}
+
 export type PlatformToGameMessage =
   | WelcomeMessage
   | RejectMessage
@@ -351,7 +401,9 @@ export type PlatformToGameMessage =
   | LeaderboardSubmitResultMessage
   | LeaderboardQueryResultMessage
   | GameDataResultMessage
-  | AssetUploadUrlResultMessage;
+  | AssetUploadUrlResultMessage
+  | ReplayResultMessage
+  | RunGetResultMessage;
 
 /** Any message in the protocol. */
 export type RydrMessage = GameToPlatformMessage | PlatformToGameMessage;
