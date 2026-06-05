@@ -12,7 +12,6 @@
 | Wire protocol | `src/protocol/` | messages, capabilities, scoped identity, buttons, guards, `version` |
 | Game side | `src/client/` | `connectToPlatform()` → `PlatformSession` (+ reactive `HardwareStore`) |
 | Platform side | `src/host/` | `createPlatformHost()` — what the shell uses to embed a game |
-| Standalone dev | `src/dev/` | `createDevHarness()` — mock platform (sliders/fake identity) for no-shell dev |
 
 ## Contract rules (don't break)
 

@@ -16,7 +16,8 @@ import type {
   SubmitScoreResult,
 } from "../protocol/boards";
 import type { GameDoc, GameDataScope } from "../protocol/gamedata";
-import type { ReplayRef } from "../protocol/replays";
+import type { ReplayBody, ReplayFrame, ReplayMeta, ReplayRef } from "../protocol/replays";
+import { decodeReplay, encodeReplay } from "./replayCodec";
 import type {
   GameToPlatformMessage,
   WelcomeMessage,
@@ -101,20 +102,29 @@ export interface PlatformSession {
   /** Read back an opaque run breakdown by `runId` (e.g. a leaderboard entry's `runId`). `null` if absent. */
   getRun(runId: string): Promise<unknown | null>;
 
-  // ── Replays / ghosts (opaque blobs keyed by runId; relayed through the shell) ──
+  // ── Replays / ghosts (frame arrays keyed by runId; relayed through the shell) ──
   /**
-   * Save an opaque replay/ghost blob — a base64 string of the game's compressed time-series —
-   * keyed by `runId` (default the session's own {@link runId}). A replay aligns to a leaderboard
-   * entry through the shared `runId`, so it can be fetched back as the ghost for that standing.
+   * Save a replay/ghost: an array of {@link ReplayFrame} (`{ t, power, customData }`) keyed by
+   * `runId` (default the session's own {@link runId}). The SDK packs the frames into a versioned,
+   * gzip+base64 blob and derives a {@link ReplayMeta} summary (duration + power) stored alongside it
+   * for cheap ghost lists. A replay aligns to a leaderboard entry through the shared `runId`, so it
+   * can be fetched back as the ghost for that standing.
    */
-  saveReplay(runId: string, blob: string): Promise<void>;
+  saveReplay(runId: string, frames: ReplayFrame[], opts?: { version?: number }): Promise<void>;
   /**
    * Fetch the replays for a board's top entries (the "ghosts"). Reads the leaderboard page, then
-   * fetches each ranked entry's stored blob. `opts.key` selects a parameterized board member
+   * fetches each ranked entry's stored blob + meta. `opts.key` selects a parameterized board member
    * (e.g. per-track); `opts.top` bounds how many entries (default 10). Entries without a stored
-   * replay come back with `blob: null`.
+   * replay come back with `blob: null` and `meta: null`. This does NOT decode frames — use the
+   * `meta` for display and {@link getReplay} (or `decodeReplay`) when you need the timeline.
    */
   getReplays(boardId: string, opts?: { key?: string; top?: number }): Promise<ReplayRef[]>;
+  /**
+   * Fetch and decode a single stored replay by `runId` (e.g. a leaderboard entry's `runId`, the
+   * session's own {@link runId}, or a shared-link id). Returns the decoded {@link ReplayBody} plus
+   * its {@link ReplayMeta}, or `null` if no replay was stored for that run.
+   */
+  getReplay(runId: string): Promise<{ body: ReplayBody; meta: ReplayMeta | null } | null>;
 
   // ── Generic game-data store (opaque docs; relayed through the shell) ──
   /** Read dev-authored shared content (public). */
@@ -237,13 +247,13 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
       post({ rydr: true, type: "rydr/gamedata.list", nonce, scope, collection }),
     ).then(throwIfError).then((r) => r.docs ?? []);
 
-  // replay helper (relayed req/res). save→ok, get→blob; `error` rejects.
-  const replayGet = (runId: string): Promise<string | null> =>
+  // replay helper (relayed req/res). save→ok, get→blob+meta; `error` rejects.
+  const replayGet = (runId: string): Promise<{ blob: string; meta: ReplayMeta | null } | null> =>
     request<ReplayResultMessage>((nonce) =>
       post({ rydr: true, type: "rydr/replay.get", nonce, runId }),
     ).then((r) => {
       if (r.error) throw new Error(`[rydr-sdk] getReplay: ${r.error}`);
-      return r.blob ?? null;
+      return r.blob ? { blob: r.blob, meta: r.meta ?? null } : null;
     });
 
   return new Promise<PlatformSession>((resolve, reject) => {
@@ -418,27 +428,39 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
           if (r.error) throw new Error(`[rydr-sdk] getRun: ${r.error}`);
           return r.breakdown ?? null;
         }),
-      saveReplay: (runId, blob) =>
-        request<ReplayResultMessage>((nonce) =>
-          post({ rydr: true, type: "rydr/replay.save", nonce, runId, blob }),
-        ).then((r) => {
-          if (r.error) throw new Error(`[rydr-sdk] saveReplay: ${r.error}`);
-        }),
+      saveReplay: async (runId, frames, opts) => {
+        const { blob, meta } = await encodeReplay(frames, opts?.version ?? 1);
+        const r = await request<ReplayResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/replay.save", nonce, runId, blob, meta }),
+        );
+        if (r.error) throw new Error(`[rydr-sdk] saveReplay: ${r.error}`);
+      },
+      getReplay: async (runId) => {
+        const stored = await replayGet(runId);
+        if (!stored) return null;
+        const body = await decodeReplay(stored.blob);
+        if (!body) return null;
+        return { body, meta: stored.meta };
+      },
       getReplays: async (boardId, opts) => {
         knownBoard(boardId);
         const page = await request<LeaderboardPage>((nonce) =>
           post({ rydr: true, type: "rydr/leaderboard.query", nonce, boardId, key: opts?.key, limit: opts?.top ?? 10 }),
         );
-        // Each ranked entry that carries a runId maps to a (possibly absent) stored replay blob.
+        // Each ranked entry that carries a runId maps to a (possibly absent) stored replay.
         const ranked = page.entries.filter((e): e is typeof e & { runId: string } => !!e.runId);
         return Promise.all(
-          ranked.map(async (e) => ({
-            runId: e.runId,
-            rank: e.rank,
-            displayName: e.displayName,
-            value: e.value,
-            blob: await replayGet(e.runId),
-          })),
+          ranked.map(async (e): Promise<ReplayRef> => {
+            const stored = await replayGet(e.runId);
+            return {
+              runId: e.runId,
+              rank: e.rank,
+              displayName: e.displayName,
+              value: e.value,
+              blob: stored?.blob ?? null,
+              meta: stored?.meta ?? null,
+            };
+          }),
         );
       },
       getContent: (collection, id) => gamedataGet("shared", collection, id),

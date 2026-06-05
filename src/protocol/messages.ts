@@ -15,6 +15,7 @@ import type { ScopedIdentity } from "./identity";
 import type { ButtonName, ButtonEdge } from "./buttons";
 import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards";
 import type { GameDataScope, GameDoc } from "./gamedata";
+import type { ReplayMeta } from "./replays";
 
 /** Marker present on every SDK message. */
 interface RydrTagged {
@@ -181,10 +182,11 @@ export interface AssetUploadUrlMessage extends RydrTagged {
 }
 
 /**
- * Save an opaque replay/ghost blob (a base64 string of the game's compressed time-series)
- * keyed by `runId`. The shell relays the authenticated write to the `replays` party (stamping
- * playerId). A replay aligns to a leaderboard entry via the shared `runId`. Reply:
- * {@link ReplayResultMessage} (`ok`).
+ * Save a replay/ghost keyed by `runId`: the `blob` is the game's compressed frame time-series
+ * (base64; opaque at this layer — the SDK encodes a `ReplayFrame[]` into it), and `meta` is the
+ * SDK-derived display summary persisted alongside it for ghost lists. The shell relays the
+ * authenticated write to the `replays` party (stamping playerId). A replay aligns to a leaderboard
+ * entry via the shared `runId`. Reply: {@link ReplayResultMessage} (`ok`).
  */
 export interface ReplaySaveMessage extends RydrTagged {
   type: "rydr/replay.save";
@@ -192,9 +194,11 @@ export interface ReplaySaveMessage extends RydrTagged {
   runId: string;
   /** base64 string of the game's compressed replay/ghost time-series. */
   blob: string;
+  /** Derived display summary (duration + power) stored alongside the blob for ghost lists. */
+  meta: ReplayMeta;
 }
 
-/** Fetch a stored replay blob by `runId`. Reply: {@link ReplayResultMessage} (`blob`, `null` if absent). */
+/** Fetch a stored replay by `runId`. Reply: {@link ReplayResultMessage} (`blob`+`meta`, both `null` if absent). */
 export interface ReplayGetMessage extends RydrTagged {
   type: "rydr/replay.get";
   nonce: number;
@@ -367,12 +371,14 @@ export interface AssetUploadUrlResultMessage extends RydrTagged {
 }
 
 /** Reply to {@link ReplaySaveMessage} / {@link ReplayGetMessage} (matched by `nonce`):
- *  save→`ok`; get→`blob` (`null` when not found). `error` set on failure. */
+ *  save→`ok`; get→`blob`+`meta` (`null` when not found). `error` set on failure. */
 export interface ReplayResultMessage extends RydrTagged {
   type: "rydr/replay.result";
   nonce: number;
   ok?: boolean;
   blob?: string | null;
+  /** Derived display summary returned with a fetched replay (`null`/absent when not found). */
+  meta?: ReplayMeta | null;
   error?: string;
 }
 

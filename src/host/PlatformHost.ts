@@ -13,6 +13,7 @@ import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons";
 import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards";
 import type { GameDataScope, GameDoc } from "../protocol/gamedata";
+import type { ReplayMeta } from "../protocol/replays";
 import type { PlatformToGameMessage } from "../protocol/messages";
 
 /** A generic game-data operation the host relays to the shell's data service. */
@@ -96,10 +97,11 @@ export interface PlatformHostOptions {
   onGameData?(op: GameDataOp): Promise<GameDataResult>;
   /** The game requested a presigned upload URL for a binary asset; mint and return it. */
   onGetUploadUrl?(req: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl?: string; url?: string; error?: string }>;
-  /** The game saved an opaque replay/ghost blob (base64) keyed by `runId`; persist it. */
-  onSaveReplay?(runId: string, blob: string): Promise<{ ok?: boolean; error?: string }>;
-  /** The game requested a stored replay blob by `runId`; fetch and return it (`null` if absent). */
-  onGetReplay?(runId: string): Promise<{ blob?: string | null; error?: string }>;
+  /** The game saved a replay/ghost blob (base64) + derived {@link ReplayMeta} keyed by `runId`;
+   *  persist both. */
+  onSaveReplay?(runId: string, blob: string, meta: ReplayMeta): Promise<{ ok?: boolean; error?: string }>;
+  /** The game requested a stored replay by `runId`; fetch and return its blob + meta (`null` if absent). */
+  onGetReplay?(runId: string): Promise<{ blob?: string | null; meta?: ReplayMeta | null; error?: string }>;
   /** The game requested a stored run breakdown by `runId`; fetch and return it. */
   onGetRun?(runId: string): Promise<{ breakdown?: unknown; error?: string }>;
 }
@@ -265,7 +267,7 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
         const { nonce } = msg;
         const handler =
           options.onSaveReplay ?? (async (): Promise<{ error: string }> => ({ error: "replays not supported" }));
-        void handler(msg.runId, msg.blob)
+        void handler(msg.runId, msg.blob, msg.meta)
           .then((r) => post({ rydr: true, type: "rydr/replay.result", nonce, ...r }))
           .catch((err) => {
             console.error("[rydr-host] saveReplay failed:", err);

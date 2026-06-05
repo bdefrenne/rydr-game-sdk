@@ -11,7 +11,6 @@ This package is the **public contract** between platform and game:
 - `protocol/` — the versionless wire protocol: handshake, capabilities, scoped identity, hardware/lifecycle messages, type guards. **Treat as a public API — additive changes only.**
 - `client/` — `connectToPlatform()` → a `PlatformSession` exposing a reactive hardware store, scoped identity, and trainer-control commands.
 - `host/` — `createPlatformHost()`: the **platform side** of the protocol (used by the shell to embed a game).
-- `dev/` — `createDevHarness()`: a stand-in platform (power/HR/cadence sliders, fake profile) so a game runs standalone with no shell and no trainer.
 
 ## Install
 
@@ -68,7 +67,7 @@ exists but defaults to ALL; you don't set it.)
 > **No activity/FIT API.** The platform records every session automatically from its own hardware stream — games do nothing for recording.
 
 - `boards: readonly BoardDefinition[]` · `runId: string` · `dataHost: string` — the game's leaderboard catalog (from its manifest), the run this session is recorded under, and the realtime backend host.
-- **Backend services** (detailed below): `submitScore` · `getLeaderboard` · `saveRun`/`getRun` · `saveReplay`/`getReplays` · `getContent`/`listContent` · `getData`/`listData`/`saveData`/`deleteData` · `saveContent`/`deleteContent` · `getUploadUrl` · `joinRoom`.
+- **Backend services** (detailed below): `submitScore` · `getLeaderboard` · `saveRun`/`getRun` · `saveReplay`/`getReplays`/`getReplay` · `getContent`/`listContent` · `getData`/`listData`/`saveData`/`deleteData` · `saveContent`/`deleteContent` · `getUploadUrl` · `joinRoom`.
 - `onButton(cb)` · `onPause(cb)` · `onResume(cb)` · `onIdentityChange(cb)` — each returns an unsubscribe fn.
 - `dispose()`.
 
@@ -76,10 +75,6 @@ exists but defaults to ALL; you don't set it.)
 — power W · cadence rpm · heartRate bpm (0 with no HRM) · speed m/s · updatedAt ms.
 
 `ButtonEvent` = `{ name: ButtonName; edge: "down" | "up" }` (see `protocol/buttons.ts` for the `ButtonName` union).
-
-### Standalone dev
-`createDevHarness(options?)` stands up a mock platform (sliders + fake identity) so a game runs with no shell:
-`{ ui?: boolean; grant?: Capability[]; identity?: Partial<ScopedIdentity>; initialPath?: string; streamHz?: number }`.
 
 > The compiled types in `dist/index.d.ts` are authoritative — this section is the overview.
 
@@ -113,21 +108,29 @@ const detail = await session.getRun(someEntry.runId); // read a breakdown back (
 
 ### Replays / ghosts
 
-A replay is an **opaque blob** — a base64 string of whatever compressed time-series the game records (a ghost path, an input log) — saved against a `runId`. Because the leaderboard stamps `runId` on every entry, a replay is also the **ghost for that standing**: `getReplays` reads a board's top-N entries and returns each one's blob.
+A replay is an **array of frames** the game interpolates over to render a ghost. Every frame is `{ t, power, customData? }`: `t` (ms from start) and `power` (watts) are **mandatory and platform-readable** — so the timeline and power of any replay are legible to the platform/tooling — while `customData` is the game's own opaque per-frame payload (position, lean, animation…). Timing lives entirely in `t`, so frames need **not** be evenly spaced (no global sample rate / frame count to drift).
+
+The SDK owns the wire shape: `saveReplay` packs the frames into a versioned, gzip+base64 blob, and **derives** a small `ReplayMeta` summary — `{ durationMs, avgPower, maxPower }` — stored alongside it so a ghost list can render without decompressing every blob. Who/score/when are *not* in the meta; they're on the leaderboard entry sharing the same `runId`. Because the leaderboard stamps `runId` on every entry, a replay is also the **ghost for that standing**.
 
 ```ts
-// After a run: store the ghost against this session's runId.
-await session.saveReplay(session.runId, encodeGhost(samples)); // blob is a base64 string
+// After a run: store the ghost against this session's runId. The SDK encodes + derives meta.
+await session.saveReplay(session.runId, frames); // frames: { t, power, customData? }[]
 
-// To race against the top ghosts on a (parameterized) board:
+// Cheap ghost list — meta only, no blob decode:
 const ghosts = await session.getReplays("lap", { key: trackId, top: 5 });
 for (const g of ghosts) {
-  if (g.blob) spawnGhost(g.displayName, g.rank, decodeGhost(g.blob)); // blob is null if none stored
+  if (g.meta) showRow(g.displayName, g.rank, g.value, g.meta.durationMs, g.meta.avgPower);
 }
+
+// Race against a specific ghost — decode its frames:
+const r = await session.getReplay(ghosts[0].runId);
+if (r) spawnGhost(r.body.frames); // r = { body: ReplayBody, meta: ReplayMeta | null }
 ```
 
-- `saveReplay(runId, blob)` → `Promise<void>` — persist a base64 replay blob keyed by `runId`. Large blobs are chunked server-side. For truly large binaries prefer [asset upload](#asset-upload) (R2) and store the URL.
-- `getReplays(boardId, { key?, top? })` → `Promise<ReplayRef[]>` — the top entries' ghosts. Each `ReplayRef` = `{ runId, rank, displayName, value, blob: string | null }` (`blob` is `null` for an entry with no stored replay). `top` defaults to 10; `key` selects a parameterized board member.
+- `saveReplay(runId, frames, { version? })` → `Promise<void>` — encode `ReplayFrame[]` and persist the blob + derived meta keyed by `runId`. Large blobs are chunked server-side; for truly large binaries prefer [asset upload](#asset-upload) (R2) and store the URL.
+- `getReplays(boardId, { key?, top? })` → `Promise<ReplayRef[]>` — the top entries' ghosts. Each `ReplayRef` = `{ runId, rank, displayName, value, blob: string | null, meta: ReplayMeta | null }` (`blob`/`meta` are `null` for an entry with no stored replay). Use `meta` for display; this does **not** decode frames. `top` defaults to 10; `key` selects a parameterized board member.
+- `getReplay(runId)` → `Promise<{ body: ReplayBody, meta: ReplayMeta | null } | null>` — fetch and decode one replay (a board entry's `runId`, the session's own, or a shared-link id). `null` if none stored.
+- `encodeReplay(frames, version?)` / `decodeReplay(blob)` — the codec, exported standalone for tooling or when you hold a raw blob.
 
 ### Game-data store (opaque docs)
 
