@@ -28,6 +28,8 @@ const PLATFORM_TO_GAME_TYPES: ReadonlySet<string> = new Set([
   "rydr/ping",
   "rydr/leaderboard.submitResult",
   "rydr/leaderboard.queryResult",
+  "rydr/gamedata.result",
+  "rydr/asset.uploadUrlResult",
 ]);
 
 /** True if `x` is any SDK protocol message. */

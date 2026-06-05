@@ -19,6 +19,7 @@ import { ALL_CAPABILITIES } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName } from "../protocol/buttons";
 import type { BoardDefinition, BoardEntry, LeaderboardPage, SubmitScoreResult } from "../protocol/boards";
+import type { GameDoc } from "../protocol/gamedata";
 import type { PlatformToGameMessage } from "../protocol/messages";
 import { RYDR_PROTOCOL_VERSION } from "../protocol/version";
 import { isGameToPlatformMessage } from "../protocol/guards";
@@ -85,6 +86,8 @@ export function createDevHarness(options: DevHarnessOptions = {}): DevHarness {
   // with fake rivals so the game's results screen has data to render in dev.
   type StoredEntry = { playerId: string; displayName: string; value: number; ts: number };
   const boardStore = new Map<string, Map<string, StoredEntry>>();
+  // Mock gamedata store keyed by `{scope}:{collection}:{id}` (single game in dev).
+  const gamedataStore = new Map<string, GameDoc>();
   const boardKey = (boardId: string, key?: string): string => (key ? `${boardId}:${key}` : boardId);
 
   const rankEntries = (boardId: string, raw: StoredEntry[]): BoardEntry[] => {
@@ -171,6 +174,38 @@ export function createDevHarness(options: DevHarnessOptions = {}): DevHarness {
       }
       case "rydr/run.save":
         console.info("[dev-harness] run.save", msg.breakdown);
+        break;
+      case "rydr/gamedata.get": {
+        const doc = gamedataStore.get(`${msg.scope}:${msg.collection}:${msg.id}`) ?? null;
+        post({ rydr: true, type: "rydr/gamedata.result", nonce: msg.nonce, doc });
+        break;
+      }
+      case "rydr/gamedata.list": {
+        const prefix = `${msg.scope}:${msg.collection}:`;
+        const docs = [...gamedataStore.entries()]
+          .filter(([k]) => k.startsWith(prefix))
+          .map(([, v]) => v);
+        post({ rydr: true, type: "rydr/gamedata.result", nonce: msg.nonce, docs });
+        break;
+      }
+      case "rydr/gamedata.save": {
+        gamedataStore.set(`${msg.scope}:${msg.collection}:${msg.id}`, {
+          id: msg.id,
+          data: msg.data,
+          updatedAt: Date.now(),
+          ownerId: msg.scope === "shared" ? undefined : identity.playerId,
+        });
+        post({ rydr: true, type: "rydr/gamedata.result", nonce: msg.nonce, ok: true });
+        break;
+      }
+      case "rydr/gamedata.delete": {
+        gamedataStore.delete(`${msg.scope}:${msg.collection}:${msg.id}`);
+        post({ rydr: true, type: "rydr/gamedata.result", nonce: msg.nonce, ok: true });
+        break;
+      }
+      case "rydr/asset.uploadUrl":
+        // No R2 in standalone dev — report unavailable so the editor can fall back.
+        post({ rydr: true, type: "rydr/asset.uploadUrlResult", nonce: msg.nonce, error: "asset upload unavailable in dev-harness (needs the platform + R2)" });
         break;
       case "rydr/trainer.setSimulation":
         console.info("[dev-harness] trainer.setSimulation", msg.gradePercent, "%");

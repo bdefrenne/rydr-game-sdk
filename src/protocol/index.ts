@@ -4,5 +4,6 @@ export * from "./capabilities";
 export * from "./identity";
 export * from "./buttons";
 export * from "./boards";
+export * from "./gamedata";
 export * from "./messages";
 export * from "./guards";

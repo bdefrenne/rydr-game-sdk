@@ -15,9 +15,11 @@ import type {
   LeaderboardPage,
   SubmitScoreResult,
 } from "../protocol/boards";
-import type { GameToPlatformMessage, WelcomeMessage } from "../protocol/messages";
+import type { GameDoc, GameDataScope } from "../protocol/gamedata";
+import type { GameToPlatformMessage, WelcomeMessage, GameDataResultMessage, AssetUploadUrlResultMessage } from "../protocol/messages";
 import { isPlatformToGameMessage } from "../protocol/guards";
 import { HardwareStore } from "./HardwareStore";
+import { createRoom, createLoopbackRoom, type RoomHandle } from "./Room";
 
 /** A canonical controller button event delivered to the game. */
 export interface ButtonEvent {
@@ -59,6 +61,8 @@ export interface PlatformSession {
   readonly boards: readonly BoardDefinition[];
   /** The run this session is recorded under (links score/run to the FIT activity). */
   readonly runId: string;
+  /** The `rydr` backend host — used to open realtime room WebSockets. */
+  readonly dataHost: string;
 
   /** Tell the shell the game has loaded and is ready to be shown. */
   ready(): void;
@@ -86,6 +90,35 @@ export interface PlatformSession {
   getLeaderboard(boardId: string, opts?: { key?: string; limit?: number }): Promise<LeaderboardPage>;
   /** Save an opaque, game-specific run breakdown against this session's runId. Fire-and-forget. */
   saveRun(breakdown: unknown): void;
+
+  // ── Generic game-data store (opaque docs; relayed through the shell) ──
+  /** Read dev-authored shared content (public). */
+  getContent(collection: string, id: string): Promise<GameDoc | null>;
+  /** List dev-authored shared content (public). */
+  listContent(collection: string): Promise<GameDoc[]>;
+  /** Read an owned doc. `scope` defaults to `player` (private); use `public` for UGC. */
+  getData(collection: string, id: string, opts?: { scope?: "player" | "public" }): Promise<GameDoc | null>;
+  /** List owned docs (`player`) or world-readable UGC (`public`). */
+  listData(collection: string, opts?: { scope?: "player" | "public" }): Promise<GameDoc[]>;
+  /** Write an owned doc. `scope` defaults to `player` (private); `public` = world-readable UGC. */
+  saveData(collection: string, id: string, value: unknown, opts?: { scope?: "player" | "public" }): Promise<void>;
+  /** Delete an owned doc. */
+  deleteData(collection: string, id: string, opts?: { scope?: "player" | "public" }): Promise<void>;
+  /** Author `shared` (official) content — charts, songs, levels. Requires author rights on this
+   *  game (the platform checks the per-game author allowlist by your playerId). Used by in-game
+   *  editors. */
+  saveContent(collection: string, id: string, value: unknown): Promise<void>;
+  /** Delete `shared` content (author rights required). */
+  deleteContent(collection: string, id: string): Promise<void>;
+  /**
+   * Get a presigned URL to upload a binary asset (e.g. an MP3) for `shared` content. Author
+   * rights required. Returns `{ uploadUrl, url }`: PUT the file to `uploadUrl` directly, then
+   * store the public `url` in a doc via {@link saveContent}.
+   */
+  getUploadUrl(opts: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl: string; url: string }>;
+
+  /** Join a realtime room (presence + relay + opaque shared state) via direct WebSocket. */
+  joinRoom(roomId: string): RoomHandle;
 
   /** Tell the shell the game's internal route changed (for URL projection). */
   setRoute(path: string): void;
@@ -164,6 +197,21 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
     target.postMessage(message, platformOrigin);
   };
 
+  // gamedata helpers (relayed req/res). The shell replies with one GameDataResultMessage;
+  // get→doc, list→docs, save/delete→ok, and `error` rejects.
+  const throwIfError = (r: GameDataResultMessage): GameDataResultMessage => {
+    if (r.error) throw new Error(`[rydr-sdk] gamedata: ${r.error}`);
+    return r;
+  };
+  const gamedataGet = (scope: GameDataScope, collection: string, id: string): Promise<GameDoc | null> =>
+    request<GameDataResultMessage>((nonce) =>
+      post({ rydr: true, type: "rydr/gamedata.get", nonce, scope, collection, id }),
+    ).then(throwIfError).then((r) => r.doc ?? null);
+  const gamedataList = (scope: GameDataScope, collection: string): Promise<GameDoc[]> =>
+    request<GameDataResultMessage>((nonce) =>
+      post({ rydr: true, type: "rydr/gamedata.list", nonce, scope, collection }),
+    ).then(throwIfError).then((r) => r.docs ?? []);
+
   return new Promise<PlatformSession>((resolve, reject) => {
     let settled = false;
     let identity: ScopedIdentity | null = null;
@@ -171,6 +219,7 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
     let initialPath: string | undefined;
     let boards: readonly BoardDefinition[] = [];
     let runId = "";
+    let dataHost = "";
 
     const knownBoard = (boardId: string): boolean => {
       const ok = boards.some((b) => b.id === boardId);
@@ -195,6 +244,7 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
           initialPath = welcome.initialPath;
           boards = welcome.boards ?? [];
           runId = welcome.runId ?? "";
+          dataHost = welcome.dataHost ?? "";
           resolve(session);
           break;
         }
@@ -249,6 +299,12 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         case "rydr/leaderboard.queryResult":
           pending.get(msg.nonce)?.({ entries: msg.entries, you: msg.you } as LeaderboardPage);
           break;
+        case "rydr/gamedata.result":
+          pending.get(msg.nonce)?.(msg);
+          break;
+        case "rydr/asset.uploadUrlResult":
+          pending.get(msg.nonce)?.(msg);
+          break;
       }
     };
 
@@ -293,6 +349,9 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
       get runId(): string {
         return runId;
       },
+      get dataHost(): string {
+        return dataHost;
+      },
       hardware,
       ready: () => post({ rydr: true, type: "rydr/ready" }),
       reportLoadProgress: (progress) => post({ rydr: true, type: "rydr/loadProgress", progress }),
@@ -312,6 +371,39 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         );
       },
       saveRun: (breakdown) => post({ rydr: true, type: "rydr/run.save", breakdown }),
+      getContent: (collection, id) => gamedataGet("shared", collection, id),
+      listContent: (collection) => gamedataList("shared", collection),
+      getData: (collection, id, opts) => gamedataGet(opts?.scope ?? "player", collection, id),
+      listData: (collection, opts) => gamedataList(opts?.scope ?? "player", collection),
+      saveData: (collection, id, value, opts) =>
+        request<GameDataResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/gamedata.save", nonce, scope: opts?.scope ?? "player", collection, id, data: value }),
+        ).then(throwIfError).then(() => undefined),
+      deleteData: (collection, id, opts) =>
+        request<GameDataResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/gamedata.delete", nonce, scope: opts?.scope ?? "player", collection, id }),
+        ).then(throwIfError).then(() => undefined),
+      saveContent: (collection, id, value) =>
+        request<GameDataResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/gamedata.save", nonce, scope: "shared", collection, id, data: value }),
+        ).then(throwIfError).then(() => undefined),
+      deleteContent: (collection, id) =>
+        request<GameDataResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/gamedata.delete", nonce, scope: "shared", collection, id }),
+        ).then(throwIfError).then(() => undefined),
+      getUploadUrl: (opts) =>
+        request<AssetUploadUrlResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/asset.uploadUrl", nonce, collection: opts.collection, filename: opts.filename, contentType: opts.contentType }),
+        ).then((r) => {
+          if (r.error || !r.uploadUrl || !r.url) throw new Error(`[rydr-sdk] getUploadUrl: ${r.error ?? "no url"}`);
+          return { uploadUrl: r.uploadUrl, url: r.url };
+        }),
+      joinRoom: (roomId) => {
+        if (!identity) throw new Error("[rydr-sdk] joinRoom: session not established");
+        // No dataHost (standalone dev / shell didn't supply one) → local loopback room.
+        if (!dataHost) return createLoopbackRoom(identity.playerId, identity.displayName);
+        return createRoom({ host: dataHost, gameId, roomId, playerId: identity.playerId, name: identity.displayName });
+      },
       setRoute: (path) => post({ rydr: true, type: "rydr/route.changed", path }),
       setChrome: (visible) => post({ rydr: true, type: "rydr/ui.setChrome", visible }),
       requestExit: () => post({ rydr: true, type: "rydr/exitRequest" }),

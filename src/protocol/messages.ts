@@ -14,6 +14,7 @@ import type { Capability } from "./capabilities";
 import type { ScopedIdentity } from "./identity";
 import type { ButtonName, ButtonEdge } from "./buttons";
 import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards";
+import type { GameDataScope, GameDoc } from "./gamedata";
 
 /** Marker present on every SDK message. */
 interface RydrTagged {
@@ -133,6 +134,52 @@ export interface RunSaveMessage extends RydrTagged {
   breakdown: unknown;
 }
 
+/** Read one doc from the generic game-data store. Reply: {@link GameDataResultMessage} (`doc`). */
+export interface GameDataGetMessage extends RydrTagged {
+  type: "rydr/gamedata.get";
+  nonce: number;
+  scope: GameDataScope;
+  collection: string;
+  id: string;
+}
+
+/** List a collection. Reply: {@link GameDataResultMessage} (`docs`). */
+export interface GameDataListMessage extends RydrTagged {
+  type: "rydr/gamedata.list";
+  nonce: number;
+  scope: GameDataScope;
+  collection: string;
+}
+
+/** Write a doc (scope `player` or `public` only — `shared` is admin-authored). Reply: `ok`. */
+export interface GameDataSaveMessage extends RydrTagged {
+  type: "rydr/gamedata.save";
+  nonce: number;
+  scope: GameDataScope;
+  collection: string;
+  id: string;
+  data: unknown;
+}
+
+/** Delete an owned doc (scope `player` or `public`). Reply: `ok`. */
+export interface GameDataDeleteMessage extends RydrTagged {
+  type: "rydr/gamedata.delete";
+  nonce: number;
+  scope: GameDataScope;
+  collection: string;
+  id: string;
+}
+
+/** Request a presigned upload URL for a binary asset (e.g. an MP3). Reply:
+ *  {@link AssetUploadUrlResultMessage}. Authed by the per-game author allowlist. */
+export interface AssetUploadUrlMessage extends RydrTagged {
+  type: "rydr/asset.uploadUrl";
+  nonce: number;
+  collection: string;
+  filename: string;
+  contentType?: string;
+}
+
 export type GameToPlatformMessage =
   | HelloMessage
   | ReadyMessage
@@ -148,7 +195,12 @@ export type GameToPlatformMessage =
   | GameErrorMessage
   | LeaderboardSubmitMessage
   | LeaderboardQueryMessage
-  | RunSaveMessage;
+  | RunSaveMessage
+  | GameDataGetMessage
+  | GameDataListMessage
+  | GameDataSaveMessage
+  | GameDataDeleteMessage
+  | AssetUploadUrlMessage;
 
 // ============================================================
 // Platform → Game
@@ -166,6 +218,9 @@ export interface WelcomeMessage extends RydrTagged {
   boards?: BoardDefinition[];
   /** The run this session is recorded under (links score/run to the shell's FIT activity). */
   runId?: string;
+  /** The `rydr` backend host (e.g. `rydr.bdefrenne.partykit.dev`) — lets the SDK open a direct
+   *  WebSocket for realtime rooms (`joinRoom`). HTTP data calls still go through the relay. */
+  dataHost?: string;
 }
 
 /** Rejects the handshake (e.g. unknown game, unsupported protocol, denied capabilities). */
@@ -259,6 +314,26 @@ export interface LeaderboardQueryResultMessage extends RydrTagged {
   you?: BoardEntry;
 }
 
+/** Reply to any `rydr/gamedata.*` request (matched by `nonce`). `get`→`doc`, `list`→`docs`,
+ *  `save`/`delete`→`ok`. `error` set when the op was denied/failed. */
+export interface GameDataResultMessage extends RydrTagged {
+  type: "rydr/gamedata.result";
+  nonce: number;
+  doc?: GameDoc | null;
+  docs?: GameDoc[];
+  ok?: boolean;
+  error?: string;
+}
+
+/** Reply to {@link AssetUploadUrlMessage}: a presigned PUT `uploadUrl` + the eventual public `url`. */
+export interface AssetUploadUrlResultMessage extends RydrTagged {
+  type: "rydr/asset.uploadUrlResult";
+  nonce: number;
+  uploadUrl?: string;
+  url?: string;
+  error?: string;
+}
+
 export type PlatformToGameMessage =
   | WelcomeMessage
   | RejectMessage
@@ -274,7 +349,9 @@ export type PlatformToGameMessage =
   | LifecycleResumeMessage
   | PingMessage
   | LeaderboardSubmitResultMessage
-  | LeaderboardQueryResultMessage;
+  | LeaderboardQueryResultMessage
+  | GameDataResultMessage
+  | AssetUploadUrlResultMessage;
 
 /** Any message in the protocol. */
 export type RydrMessage = GameToPlatformMessage | PlatformToGameMessage;

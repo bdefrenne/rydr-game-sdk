@@ -12,7 +12,25 @@ import type { Capability } from "../protocol/capabilities";
 import type { ScopedIdentity } from "../protocol/identity";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons";
 import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards";
+import type { GameDataScope, GameDoc } from "../protocol/gamedata";
 import type { PlatformToGameMessage } from "../protocol/messages";
+
+/** A generic game-data operation the host relays to the shell's data service. */
+export interface GameDataOp {
+  kind: "get" | "list" | "save" | "delete";
+  scope: GameDataScope;
+  collection: string;
+  id?: string;
+  data?: unknown;
+}
+
+/** Result the shell returns for a {@link GameDataOp}. `get`→doc, `list`→docs, `save`/`delete`→ok. */
+export interface GameDataResult {
+  doc?: GameDoc | null;
+  docs?: GameDoc[];
+  ok?: boolean;
+  error?: string;
+}
 import { RYDR_PROTOCOL_VERSION } from "../protocol/version";
 import { isGameToPlatformMessage } from "../protocol/guards";
 
@@ -57,6 +75,8 @@ export interface PlatformHostOptions {
   boards?: BoardDefinition[];
   /** The run id this session is recorded under, handed over in `welcome`. */
   runId?: string;
+  /** The `rydr` backend host, handed over in `welcome` so the game can open realtime rooms. */
+  dataHost?: string;
 
   onReady?(): void;
   onLoadProgress?(progress: number): void;
@@ -72,6 +92,10 @@ export interface PlatformHostOptions {
   onGetLeaderboard?(boardId: string, opts: { key?: string; limit?: number }): Promise<LeaderboardPage>;
   /** The game saved an opaque run breakdown; persist it against the run id. */
   onSaveRun?(breakdown: unknown): void;
+  /** The game read/wrote the generic game-data store; perform it and return the result. */
+  onGameData?(op: GameDataOp): Promise<GameDataResult>;
+  /** The game requested a presigned upload URL for a binary asset; mint and return it. */
+  onGetUploadUrl?(req: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl?: string; url?: string; error?: string }>;
 }
 
 export interface PlatformHost {
@@ -126,6 +150,7 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           initialPath: options.initialPath,
           boards: options.boards,
           runId: options.runId,
+          dataHost: options.dataHost,
         });
         const status = hardware.getStatus();
         post({ rydr: true, type: "rydr/trainer.status", connected: status.connected, ergSupported: status.ergSupported });
@@ -195,6 +220,41 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
       case "rydr/run.save":
         options.onSaveRun?.(msg.breakdown);
         break;
+      case "rydr/gamedata.get":
+      case "rydr/gamedata.list":
+      case "rydr/gamedata.save":
+      case "rydr/gamedata.delete": {
+        const { nonce } = msg;
+        const kind = msg.type.slice("rydr/gamedata.".length) as GameDataOp["kind"];
+        const op: GameDataOp = {
+          kind,
+          scope: msg.scope,
+          collection: msg.collection,
+          id: "id" in msg ? msg.id : undefined,
+          data: "data" in msg ? msg.data : undefined,
+        };
+        const handler =
+          options.onGameData ?? (async (): Promise<GameDataResult> => ({ error: "gamedata not supported" }));
+        void handler(op)
+          .then((r) => post({ rydr: true, type: "rydr/gamedata.result", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] gamedata failed:", err);
+            post({ rydr: true, type: "rydr/gamedata.result", nonce, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/asset.uploadUrl": {
+        const { nonce } = msg;
+        const handler =
+          options.onGetUploadUrl ?? (async (): Promise<{ error: string }> => ({ error: "asset upload not supported" }));
+        void handler({ collection: msg.collection, filename: msg.filename, contentType: msg.contentType })
+          .then((r) => post({ rydr: true, type: "rydr/asset.uploadUrlResult", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] asset.uploadUrl failed:", err);
+            post({ rydr: true, type: "rydr/asset.uploadUrlResult", nonce, error: String(err) });
+          });
+        break;
+      }
     }
   };
 
