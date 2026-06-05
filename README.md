@@ -4,7 +4,7 @@ The client SDK for building games on the **RYDR** indoor-cycling platform.
 
 A RYDR game runs as a sandboxed cross-origin `<iframe>` embedded by the platform shell. The shell owns the hardware (BLE trainer, HRM, Zwift Play, phone) and the user; the game receives **scoped** hardware data and identity over a versioned `postMessage` wire protocol and never touches BLE or PII directly.
 
-Beyond bridging hardware and identity, the shell also **backs a set of services** a game can call: leaderboards, opaque run records, a scoped game-data store (dev-authored content, per-player saves, and world-readable UGC), asset hosting, and realtime rooms — see [Backend services](#backend-services). A game rarely needs its own backend.
+Beyond bridging hardware and identity, the shell also **backs a set of services** a game can call: leaderboards, opaque run records, replays/ghosts, a scoped game-data store (dev-authored content, per-player saves, and world-readable UGC), asset hosting, and realtime rooms — see [Backend services](#backend-services). A game rarely needs its own backend.
 
 This package is the **public contract** between platform and game:
 
@@ -68,7 +68,7 @@ exists but defaults to ALL; you don't set it.)
 > **No activity/FIT API.** The platform records every session automatically from its own hardware stream — games do nothing for recording.
 
 - `boards: readonly BoardDefinition[]` · `runId: string` · `dataHost: string` — the game's leaderboard catalog (from its manifest), the run this session is recorded under, and the realtime backend host.
-- **Backend services** (detailed below): `submitScore` · `getLeaderboard` · `saveRun` · `getContent`/`listContent` · `getData`/`listData`/`saveData`/`deleteData` · `saveContent`/`deleteContent` · `getUploadUrl` · `joinRoom`.
+- **Backend services** (detailed below): `submitScore` · `getLeaderboard` · `saveRun`/`getRun` · `saveReplay`/`getReplays` · `getContent`/`listContent` · `getData`/`listData`/`saveData`/`deleteData` · `saveContent`/`deleteContent` · `getUploadUrl` · `joinRoom`.
 - `onButton(cb)` · `onPause(cb)` · `onResume(cb)` · `onIdentityChange(cb)` — each returns an unsubscribe fn.
 - `dispose()`.
 
@@ -105,9 +105,29 @@ const page = await session.getLeaderboard("waves", { limit: 10 }); // { entries,
 
 ```ts
 session.saveRun({ outcome: "win", waves: 12 }); // fire-and-forget — returns void, do NOT await
+const detail = await session.getRun(someEntry.runId); // read a breakdown back (e.g. leaderboard detail)
 ```
 
-`saveRun(breakdown)` stores an opaque, game-specific object against this session's `runId` (which links to the FIT activity).
+- `saveRun(breakdown)` stores an opaque, game-specific object against this session's `runId` (which links to the FIT activity). Fire-and-forget — returns `void`, do **not** await.
+- `getRun(runId)` → `Promise<unknown | null>` reads a stored breakdown back (e.g. expand a leaderboard row; `BoardEntry.runId` is the key). `null` if absent.
+
+### Replays / ghosts
+
+A replay is an **opaque blob** — a base64 string of whatever compressed time-series the game records (a ghost path, an input log) — saved against a `runId`. Because the leaderboard stamps `runId` on every entry, a replay is also the **ghost for that standing**: `getReplays` reads a board's top-N entries and returns each one's blob.
+
+```ts
+// After a run: store the ghost against this session's runId.
+await session.saveReplay(session.runId, encodeGhost(samples)); // blob is a base64 string
+
+// To race against the top ghosts on a (parameterized) board:
+const ghosts = await session.getReplays("lap", { key: trackId, top: 5 });
+for (const g of ghosts) {
+  if (g.blob) spawnGhost(g.displayName, g.rank, decodeGhost(g.blob)); // blob is null if none stored
+}
+```
+
+- `saveReplay(runId, blob)` → `Promise<void>` — persist a base64 replay blob keyed by `runId`. Large blobs are chunked server-side. For truly large binaries prefer [asset upload](#asset-upload) (R2) and store the URL.
+- `getReplays(boardId, { key?, top? })` → `Promise<ReplayRef[]>` — the top entries' ghosts. Each `ReplayRef` = `{ runId, rank, displayName, value, blob: string | null }` (`blob` is `null` for an entry with no stored replay). `top` defaults to 10; `key` selects a parameterized board member.
 
 ### Game-data store (opaque docs)
 
@@ -149,6 +169,8 @@ room.setState({ phase: "racing" }); // merge into shared opaque state (last-writ
 ```
 
 `joinRoom(roomId)` → `RoomHandle` over a direct WebSocket (presence + relay + opaque shared state; the server is dumb — the game defines what messages/state mean). Events: `message`, `presence`, `state`, `open`, `close`; each `on(...)` returns an unsubscribe fn. In **standalone dev** (no shell) it falls back to a local single-member loopback room, so room code runs without a backend.
+
+> **Status: when `room` lands.** The client + protocol are shipped, but the backend `room` party is **not yet deployed** — `joinRoom` works in standalone-dev loopback today, and goes live against the shared backend with the realtime/multiplayer follow-up. Build against it; just don't expect cross-client presence in production until then.
 
 ## Versioning
 
