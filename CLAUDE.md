@@ -15,15 +15,28 @@
 
 ## Contract rules (don't break)
 
-1. **Additive only.** `src/protocol/` is a public API across independently-deployed games.
-   Never change/remove a message shape or capability meaning — add. Breaking changes bump
-   `RYDR_PROTOCOL_VERSION` and require the host to keep accepting the old shape.
+1. **Gate every change on "is this breaking for clients?"** `src/protocol/` is the public API
+   across independently-deployed games. Before making a change, decide whether it breaks
+   existing clients (changed/removed message shape or capability meaning, changed method
+   signature/return, etc.):
+   - **Breaking → STOP and ask the user first.** Do not ship it unprompted. If they decline,
+     either do nothing or find a retro-compatible path. If they approve, bump
+     `RYDR_PROTOCOL_VERSION` and spell out the required migration in `CHANGELOG.md` under
+     **Migration / Action required**. (We're in R&D with no prod consumers, so the host need
+     not keep accepting old shapes — every game updates to the new version.)
+   - **Non-breaking → proceed,** but still add a `CHANGELOG.md` entry explaining what's new.
+
+   The changelog is the **complete migration path**: a game on any version reaches latest by
+   reading each entry between its version and `HEAD` and following the **Migration / Action
+   required** callout. So every callout must be self-contained and concrete (old → new code,
+   exact symbols) or say "None — additive, no action" — never assume the reader saw another entry.
 2. **Both sides share one definition.** Client and host import the same protocol types — the
    protocol is defined once, here.
 3. **Scoped + minimal.** Identity is PII-free; games request a capability subset and the host
    grants least-privilege.
 4. **Build:** `prepare` runs `tsc` so git-dependency consumers get `dist/` on install. Publish
-   = bump `version` + tag `vX.Y.Z`.
+   = bump `version` + add a `CHANGELOG.md` entry for that version + tag `vX.Y.Z`. Never bump
+   the version without a matching changelog entry.
 
 ## Keep the game template in sync (REQUIRED)
 

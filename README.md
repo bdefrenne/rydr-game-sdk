@@ -160,6 +160,46 @@ await fetch(uploadUrl, { method: "PUT", body: file }); // PUT the bytes directly
 await session.saveContent("songs", "track-1", { title: "…", audioUrl: url }); // store the public url
 ```
 
+### Build an in-game editor
+
+Any game can ship an **editor page** where a dev pastes the platform `ADMIN_SECRET` and authors that game's `shared` content (levels, tracks, charts, runs, …). The game reads the same content back through the session (`listContent`/`getContent`) — **one shared backend, no per-game server.**
+
+There are two write paths to `shared` content:
+
+| Path | Auth | Use it from |
+|------|------|-------------|
+| **Author allowlist** | `playerId` stamped by the shell (via the session) | an editor embedded **in-shell** (has a session) — `session.saveContent(...)` |
+| **Admin Bearer** | `Authorization: Bearer <ADMIN_SECRET>` | a **standalone** editor page (no session) — `createAdminContentBackend(...)` |
+
+A standalone editor (its own `.html`, opened outside the shell) has no session, so it uses the admin Bearer path. Prompt for the secret once, keep it in `sessionStorage` (never in the repo), and build a backend:
+
+```ts
+import { createAdminContentBackend } from "@rydr/game-sdk";
+
+const SECRET_KEY = "admin.secret";
+function getSecret(): string {
+  let s = sessionStorage.getItem(SECRET_KEY);
+  if (!s) { s = prompt("ADMIN_SECRET")?.trim() ?? ""; if (s) sessionStorage.setItem(SECRET_KEY, s); }
+  return s;
+}
+
+const admin = createAdminContentBackend({
+  host: "https://my-game.partykit.dev", // platform origin (or http://localhost:1999 in dev)
+  gameId: "my-game",
+  getSecret,
+});
+
+const levels = await admin.list("levels");                 // includes drafts (Bearer is sent)
+await admin.save("levels", "level-1", { waves: [...] });   // publish
+await admin.save("levels", "wip", { ... }, { draft: true }); // hidden from players until published
+await admin.remove("levels", "old");
+const { url } = await admin.uploadAsset({ collection: "art", filename: "bg.png", contentType: "image/png", body: file });
+```
+
+The game then reads the published docs with the session: `await session.listContent("levels")`. (Drafts are hidden from the public read until you `save` without `draft`.)
+
+> **Security boundary.** `ADMIN_SECRET` is the platform owner's key — full write to **any** game's shared content. It's an authoring-time credential, entered at runtime and **never shipped to players**. Player-generated content uses the `public` owner-write scope (`saveData(..., { scope: "public" })`), not this backend.
+
 ### Realtime rooms
 
 ```ts

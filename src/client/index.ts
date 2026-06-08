@@ -3,3 +3,4 @@ export * from "./HardwareStore";
 export * from "./PlatformClient";
 export * from "./replayCodec";
 export * from "./Room";
+export * from "./adminContent";
