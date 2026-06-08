@@ -10,7 +10,7 @@
  * prefixed `gz:`. When `CompressionStream` is unavailable the blob falls back to URL-encoded base64
  * JSON (no `gz:` prefix), and `decodeReplay` accepts both.
  */
-import type { ReplayBody, ReplayFrame, ReplayMeta } from "../protocol/replays";
+import type { ReplayBody, ReplayFrame, ReplayMeta } from "../protocol/replays.js";
 
 const GZIP_PREFIX = "gz:";
 

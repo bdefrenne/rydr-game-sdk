@@ -16,8 +16,8 @@
  * - server→client: `{t:"hello", state, members}`, `{t:"presence", members}`, `{t:"msg", from, data}`,
  *   `{t:"state", state}`, `{t:"telemetry", from, power?, cadence?, heartRate?, ts}`, `{t:"full", max}`
  */
-import type { RoomMember, RoomTelemetry, RoomEvent } from "../protocol/room";
-import type { GameToPlatformMessage } from "../protocol/messages";
+import type { RoomMember, RoomTelemetry, RoomEvent } from "../protocol/room.js";
+import type { GameToPlatformMessage } from "../protocol/messages.js";
 
 export type { RoomMember, RoomTelemetry, RoomEvent };
 

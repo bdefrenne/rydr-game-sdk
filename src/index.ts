@@ -6,6 +6,6 @@
  * - `client` — `connectToPlatform()` → a `PlatformSession` (game side).
  * - `host` — `createPlatformHost()` to embed a game from the shell (platform side).
  */
-export * from "./protocol/index";
-export * from "./client/index";
-export * from "./host/index";
+export * from "./protocol/index.js";
+export * from "./client/index.js";
+export * from "./host/index.js";

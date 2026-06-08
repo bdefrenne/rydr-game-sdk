@@ -8,14 +8,14 @@
  * events as callbacks. The shell supplies the real hardware + identity; this
  * host owns none of it — it only mediates the protocol.
  */
-import type { Capability } from "../protocol/capabilities";
-import type { ScopedIdentity } from "../protocol/identity";
-import type { ButtonName, ButtonEdge } from "../protocol/buttons";
-import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards";
-import type { GameDataScope, GameDoc } from "../protocol/gamedata";
-import type { ReplayMeta } from "../protocol/replays";
-import type { RoomMember, RoomTelemetry, RoomEvent } from "../protocol/room";
-import type { PlatformToGameMessage } from "../protocol/messages";
+import type { Capability } from "../protocol/capabilities.js";
+import type { ScopedIdentity } from "../protocol/identity.js";
+import type { ButtonName, ButtonEdge } from "../protocol/buttons.js";
+import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards.js";
+import type { GameDataScope, GameDoc } from "../protocol/gamedata.js";
+import type { ReplayMeta } from "../protocol/replays.js";
+import type { RoomMember, RoomTelemetry, RoomEvent } from "../protocol/room.js";
+import type { PlatformToGameMessage } from "../protocol/messages.js";
 
 /** A generic game-data operation the host relays to the shell's data service. */
 export interface GameDataOp {
@@ -58,8 +58,8 @@ export interface RoomController {
   scheduleEvent(name: string, payload?: unknown, at?: number): void;
   leave(): void;
 }
-import { RYDR_PROTOCOL_VERSION } from "../protocol/version";
-import { isGameToPlatformMessage } from "../protocol/guards";
+import { RYDR_PROTOCOL_VERSION } from "../protocol/version.js";
+import { isGameToPlatformMessage } from "../protocol/guards.js";
 
 /** A point-in-time hardware reading pushed to connected games. Omitted fields are unchanged. */
 export interface HardwareSample {

@@ -6,18 +6,18 @@
  * identity, and trainer-control commands. A game uses only this — it never
  * touches `postMessage`, BLE, or PII directly.
  */
-import { RYDR_PROTOCOL_VERSION, RYDR_SDK_VERSION } from "../protocol/version";
-import { ALL_CAPABILITIES, type Capability } from "../protocol/capabilities";
-import type { ScopedIdentity } from "../protocol/identity";
-import type { ButtonName, ButtonEdge } from "../protocol/buttons";
+import { RYDR_PROTOCOL_VERSION, RYDR_SDK_VERSION } from "../protocol/version.js";
+import { ALL_CAPABILITIES, type Capability } from "../protocol/capabilities.js";
+import type { ScopedIdentity } from "../protocol/identity.js";
+import type { ButtonName, ButtonEdge } from "../protocol/buttons.js";
 import type {
   BoardDefinition,
   LeaderboardPage,
   SubmitScoreResult,
-} from "../protocol/boards";
-import type { GameDoc, GameDataScope } from "../protocol/gamedata";
-import type { ReplayBody, ReplayFrame, ReplayMeta, ReplayRef } from "../protocol/replays";
-import { decodeReplay, encodeReplay } from "./replayCodec";
+} from "../protocol/boards.js";
+import type { GameDoc, GameDataScope } from "../protocol/gamedata.js";
+import type { ReplayBody, ReplayFrame, ReplayMeta, ReplayRef } from "../protocol/replays.js";
+import { decodeReplay, encodeReplay } from "./replayCodec.js";
 import type {
   GameToPlatformMessage,
   WelcomeMessage,
@@ -25,10 +25,10 @@ import type {
   AssetUploadUrlResultMessage,
   ReplayResultMessage,
   RunGetResultMessage,
-} from "../protocol/messages";
-import { isPlatformToGameMessage } from "../protocol/guards";
-import { HardwareStore } from "./HardwareStore";
-import { createRelayRoom, createLoopbackRoom, type RoomRelayEvent, type RoomHandle } from "./Room";
+} from "../protocol/messages.js";
+import { isPlatformToGameMessage } from "../protocol/guards.js";
+import { HardwareStore } from "./HardwareStore.js";
+import { createRelayRoom, createLoopbackRoom, type RoomRelayEvent, type RoomHandle } from "./Room.js";
 
 /** A canonical controller button event delivered to the game. */
 export interface ButtonEvent {

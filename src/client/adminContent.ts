@@ -25,7 +25,7 @@
  * instead, not this backend.
  */
 
-import type { GameDoc } from "../protocol/gamedata";
+import type { GameDoc } from "../protocol/gamedata.js";
 
 /** Bytes accepted by {@link AdminContentBackend.uploadAsset}. */
 export type AssetBody = Blob | ArrayBuffer | ArrayBufferView;

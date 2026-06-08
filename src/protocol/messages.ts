@@ -10,13 +10,13 @@
  * state, workouts) are NOT here — they belong to a game's private inner
  * protocol. Evolve this file ADDITIVELY; never change an existing shape.
  */
-import type { Capability } from "./capabilities";
-import type { ScopedIdentity } from "./identity";
-import type { ButtonName, ButtonEdge } from "./buttons";
-import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards";
-import type { GameDataScope, GameDoc } from "./gamedata";
-import type { ReplayMeta } from "./replays";
-import type { RoomMember } from "./room";
+import type { Capability } from "./capabilities.js";
+import type { ScopedIdentity } from "./identity.js";
+import type { ButtonName, ButtonEdge } from "./buttons.js";
+import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards.js";
+import type { GameDataScope, GameDoc } from "./gamedata.js";
+import type { ReplayMeta } from "./replays.js";
+import type { RoomMember } from "./room.js";
 // RoomEvent shape is documented in ./room; its fields are inlined on the wire messages below.
 
 /** Marker present on every SDK message. */

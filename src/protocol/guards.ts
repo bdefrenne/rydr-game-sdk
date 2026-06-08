@@ -9,7 +9,7 @@ import type {
   RydrMessage,
   GameToPlatformMessage,
   PlatformToGameMessage,
-} from "./messages";
+} from "./messages.js";
 
 /** Type strings the platform sends to the game. Kept in sync with {@link PlatformToGameMessage}. */
 const PLATFORM_TO_GAME_TYPES: ReadonlySet<string> = new Set([
