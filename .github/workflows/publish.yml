@@ -11,17 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # OIDC: lets npm exchange a short-lived GitHub token for publish rights (no NPM_TOKEN).
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 24 bundles npm >= 11.5.1, required for trusted publishing.
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
       # `prepare` builds dist on install; `files: ["dist"]` is what gets published.
       - run: npm install
       # Contract/compat gate (pillar 3). No-op until a `test` script exists.
       - run: npm test --if-present
+      # Trusted publishing (OIDC): auth comes from id-token, not a stored token.
+      # The trusted publisher must be registered on npmjs.com (Settings → Trusted Publisher).
+      # Provenance is generated automatically (repo is public).
       - run: npm publish --access public
-        env:
-          # Repo secret — set in GitHub UI, never committed. (No --provenance: source repo is private.)
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
