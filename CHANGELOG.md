@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.5.0] — 2026-06-08
+
 ### Added
 - **In-game editor backend** — `createAdminContentBackend({ host, gameId, getSecret })`
   returns an `AdminContentBackend` (`list` / `get` / `save` / `remove` / `uploadAsset`) for
@@ -73,5 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before 1.4.0 (v1.0.0 – v1.3.0) predate this changelog; see the git tags and
 commit messages for their history.
 
-[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.5.0
 [1.4.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.4.0
