@@ -92,6 +92,12 @@ export interface SetChromeMessage extends RydrTagged {
   visible: boolean;
 }
 
+/** Game asks the shell to show/hide the trainerless power bar (e.g. hide it in an editor). */
+export interface SetPowerBarMessage extends RydrTagged {
+  type: "rydr/ui.setPowerBar";
+  visible: boolean;
+}
+
 /** Game asks the shell to exit it (return to the launcher). */
 export interface ExitRequestMessage extends RydrTagged {
   type: "rydr/exitRequest";
@@ -267,6 +273,7 @@ export type GameToPlatformMessage =
   | TrainerSetErgModeMessage
   | RouteChangedMessage
   | SetChromeMessage
+  | SetPowerBarMessage
   | ExitRequestMessage
   | RequestHardwareModalMessage
   | GameErrorMessage

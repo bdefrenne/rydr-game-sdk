@@ -1,0 +1,27 @@
+name: Publish to npm
+
+# Publishes @rydr/game-sdk on a pushed version tag. The version comes from `npm version`
+# (which also tags + pushes via the postversion hook), so a release is one command.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+      # `prepare` builds dist on install; `files: ["dist"]` is what gets published.
+      - run: npm install
+      # Contract/compat gate (pillar 3). No-op until a `test` script exists.
+      - run: npm test --if-present
+      - run: npm publish --access public
+        env:
+          # Repo secret — set in GitHub UI, never committed. (No --provenance: source repo is private.)
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

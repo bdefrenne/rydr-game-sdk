@@ -1,12 +1,16 @@
 {
   "name": "@rydr/game-sdk",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bdefrenne/rydr-game-sdk.git"
   },
   "description": "Client SDK for building games on the RYDR indoor-cycling platform: the typed platform↔game wire protocol, a bridged hardware hook, RYDR UI components/tokens, and a local dev harness.",
+  "license": "UNLICENSED",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -23,7 +27,9 @@
     "prepare": "tsc -p tsconfig.json",
     "dev": "tsc -w -p tsconfig.json",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "version": "node scripts/sync-version.mjs && git add src/protocol/version.ts",
+    "postversion": "git push --follow-tags"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

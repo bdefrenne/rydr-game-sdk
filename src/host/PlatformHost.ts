@@ -111,6 +111,8 @@ export interface PlatformHostOptions {
   onRouteChanged?(path: string): void;
   /** The game asked to show/hide shell chrome (navbar). */
   onChromeRequest?(visible: boolean): void;
+  /** The game asked to show/hide the trainerless power bar. */
+  onPowerBarRequest?(visible: boolean): void;
   onRequestHardwareModal?(): void;
   onError?(message: string): void;
   /** The game submitted a score; perform the authenticated write and return the rank/PB. */
@@ -220,6 +222,9 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
         break;
       case "rydr/ui.setChrome":
         options.onChromeRequest?.(msg.visible);
+        break;
+      case "rydr/ui.setPowerBar":
+        options.onPowerBarRequest?.(msg.visible);
         break;
       case "rydr/exitRequest":
         options.onExitRequest?.();
