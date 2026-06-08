@@ -6,5 +6,6 @@ export * from "./buttons";
 export * from "./boards";
 export * from "./gamedata";
 export * from "./replays";
+export * from "./room";
 export * from "./messages";
 export * from "./guards";

@@ -28,7 +28,7 @@ import type {
 } from "../protocol/messages";
 import { isPlatformToGameMessage } from "../protocol/guards";
 import { HardwareStore } from "./HardwareStore";
-import { createRoom, createLoopbackRoom, type RoomHandle } from "./Room";
+import { createRelayRoom, createLoopbackRoom, type RoomRelayEvent, type RoomHandle } from "./Room";
 
 /** A canonical controller button event delivered to the game. */
 export interface ButtonEvent {
@@ -152,7 +152,11 @@ export interface PlatformSession {
    */
   getUploadUrl(opts: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl: string; url: string }>;
 
-  /** Join a realtime room (presence + relay + opaque shared state) via direct WebSocket. */
+  /**
+   * Join a realtime room (presence + relay + opaque shared state + trusted peer telemetry). The
+   * shell owns the socket and relays for the game, so identity and telemetry can't be forged. With
+   * no shell-backed rooms (standalone dev), this returns a local loopback room.
+   */
   joinRoom(roomId: string): RoomHandle;
 
   /** Tell the shell the game's internal route changed (for URL projection). */
@@ -210,6 +214,8 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
   // the shell replies with a `*Result` message carrying the same nonce, which
   // resolves the pending promise. Shared by submitScore + getLeaderboard.
   const pending = new Map<number, (value: unknown) => void>();
+  // Active relayed rooms keyed by roomId; the shell forwards room events which we route to dispatch.
+  const rooms = new Map<string, (event: RoomRelayEvent) => void>();
   let nextNonce = 1;
   const REQUEST_TIMEOUT_MS = 10_000;
   const request = <T>(send: (nonce: number) => void): Promise<T> => {
@@ -355,6 +361,41 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         case "rydr/run.result":
           pending.get(msg.nonce)?.(msg);
           break;
+        case "rydr/room.opened":
+          rooms.get(msg.roomId)?.({ type: "rydr/room.opened" });
+          break;
+        case "rydr/room.closed":
+          rooms.get(msg.roomId)?.({ type: "rydr/room.closed" });
+          rooms.delete(msg.roomId);
+          break;
+        case "rydr/room.presence":
+          rooms.get(msg.roomId)?.({ type: "rydr/room.presence", members: msg.members });
+          break;
+        case "rydr/room.state":
+          rooms.get(msg.roomId)?.({ type: "rydr/room.state", state: msg.state });
+          break;
+        case "rydr/room.message":
+          rooms.get(msg.roomId)?.({ type: "rydr/room.message", from: msg.from, data: msg.data });
+          break;
+        case "rydr/room.telemetry":
+          rooms.get(msg.roomId)?.({
+            type: "rydr/room.telemetry",
+            from: msg.from,
+            power: msg.power,
+            cadence: msg.cadence,
+            heartRate: msg.heartRate,
+            t: msg.t,
+          });
+          break;
+        case "rydr/room.event":
+          rooms.get(msg.roomId)?.({
+            type: "rydr/room.event",
+            name: msg.name,
+            payload: msg.payload,
+            at: msg.at,
+            from: msg.from,
+          });
+          break;
       }
     };
 
@@ -492,9 +533,18 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         }),
       joinRoom: (roomId) => {
         if (!identity) throw new Error("[rydr-sdk] joinRoom: session not established");
-        // No dataHost (standalone dev / shell didn't supply one) → local loopback room.
+        // No shell-backed rooms (standalone dev / shell didn't advertise a backend) → loopback.
         if (!dataHost) return createLoopbackRoom(identity.playerId, identity.displayName);
-        return createRoom({ host: dataHost, gameId, roomId, playerId: identity.playerId, name: identity.displayName });
+        // Shell-relayed room: the shell owns the socket (trusted identity + telemetry).
+        const existing = rooms.get(roomId);
+        if (existing) console.warn(`[rydr-sdk] joinRoom("${roomId}") called twice — re-joining`);
+        const { handle, dispatch } = createRelayRoom({
+          roomId,
+          post,
+          onLeave: () => rooms.delete(roomId),
+        });
+        rooms.set(roomId, dispatch);
+        return handle;
       },
       setRoute: (path) => post({ rydr: true, type: "rydr/route.changed", path }),
       setChrome: (visible) => post({ rydr: true, type: "rydr/ui.setChrome", visible }),
@@ -526,6 +576,7 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         resumeListeners.clear();
         identityListeners.clear();
         pending.clear();
+        rooms.clear();
       },
     };
   });

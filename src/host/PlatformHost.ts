@@ -14,6 +14,7 @@ import type { ButtonName, ButtonEdge } from "../protocol/buttons";
 import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards";
 import type { GameDataScope, GameDoc } from "../protocol/gamedata";
 import type { ReplayMeta } from "../protocol/replays";
+import type { RoomMember, RoomTelemetry, RoomEvent } from "../protocol/room";
 import type { PlatformToGameMessage } from "../protocol/messages";
 
 /** A generic game-data operation the host relays to the shell's data service. */
@@ -31,6 +32,31 @@ export interface GameDataResult {
   docs?: GameDoc[];
   ok?: boolean;
   error?: string;
+}
+
+/**
+ * How the shell pushes room events back to the embedded game. The host gives one of these to the
+ * shell when the game joins a room; the shell calls it as its room socket produces events. The
+ * host turns each call into the matching `rydr/room.*` frame to the iframe.
+ */
+export interface RoomEventSink {
+  opened(): void;
+  closed(): void;
+  presence(members: RoomMember[]): void;
+  state(state: Record<string, unknown>): void;
+  message(from: string, data: unknown): void;
+  /** A trusted, shell-stamped telemetry reading for one room member. */
+  telemetry(reading: RoomTelemetry): void;
+  /** A server-stamped orchestration event broadcast to the room. */
+  event(e: RoomEvent): void;
+}
+
+/** What the shell returns to the host to drive a joined room on the game's behalf. */
+export interface RoomController {
+  send(data: unknown): void;
+  setState(patch: Record<string, unknown>): void;
+  scheduleEvent(name: string, payload?: unknown, at?: number): void;
+  leave(): void;
 }
 import { RYDR_PROTOCOL_VERSION } from "../protocol/version";
 import { isGameToPlatformMessage } from "../protocol/guards";
@@ -104,6 +130,12 @@ export interface PlatformHostOptions {
   onGetReplay?(runId: string): Promise<{ blob?: string | null; meta?: ReplayMeta | null; error?: string }>;
   /** The game requested a stored run breakdown by `runId`; fetch and return it. */
   onGetRun?(runId: string): Promise<{ breakdown?: unknown; error?: string }>;
+  /**
+   * The game joined a realtime room. The shell opens/owns the socket, injects trusted telemetry,
+   * and pushes events back through `sink`; it returns a {@link RoomController} the host uses to
+   * relay the game's `send`/`setState`/`leave`. Return `undefined` if the shell can't host rooms.
+   */
+  onRoomJoin?(roomId: string, sink: RoomEventSink): RoomController | undefined;
 }
 
 export interface PlatformHost {
@@ -126,6 +158,8 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
 
   let granted: Capability[] = [];
   let unsubscribeHardware: (() => void) | null = null;
+  /** Rooms the game has joined this session, keyed by roomId. */
+  const roomControllers = new Map<string, RoomController>();
 
   const post = (message: PlatformToGameMessage): void => {
     iframe.contentWindow?.postMessage(message, gameOrigin);
@@ -299,6 +333,51 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           });
         break;
       }
+      case "rydr/room.join": {
+        const { roomId } = msg;
+        if (!options.onRoomJoin) {
+          post({ rydr: true, type: "rydr/room.closed", roomId });
+          break;
+        }
+        roomControllers.get(roomId)?.leave();
+        const sink: RoomEventSink = {
+          opened: () => post({ rydr: true, type: "rydr/room.opened", roomId }),
+          closed: () => post({ rydr: true, type: "rydr/room.closed", roomId }),
+          presence: (members) => post({ rydr: true, type: "rydr/room.presence", roomId, members }),
+          state: (state) => post({ rydr: true, type: "rydr/room.state", roomId, state }),
+          message: (from, data) => post({ rydr: true, type: "rydr/room.message", roomId, from, data }),
+          telemetry: (r) =>
+            post({
+              rydr: true,
+              type: "rydr/room.telemetry",
+              roomId,
+              from: r.playerId,
+              power: r.power,
+              cadence: r.cadence,
+              heartRate: r.heartRate,
+              t: r.t,
+            }),
+          event: (e) =>
+            post({ rydr: true, type: "rydr/room.event", roomId, name: e.name, payload: e.payload, at: e.at, from: e.from }),
+        };
+        const controller = options.onRoomJoin(roomId, sink);
+        if (controller) roomControllers.set(roomId, controller);
+        else post({ rydr: true, type: "rydr/room.closed", roomId });
+        break;
+      }
+      case "rydr/room.send":
+        roomControllers.get(msg.roomId)?.send(msg.data);
+        break;
+      case "rydr/room.setState":
+        roomControllers.get(msg.roomId)?.setState(msg.patch);
+        break;
+      case "rydr/room.scheduleEvent":
+        roomControllers.get(msg.roomId)?.scheduleEvent(msg.name, msg.payload, msg.at);
+        break;
+      case "rydr/room.leave":
+        roomControllers.get(msg.roomId)?.leave();
+        roomControllers.delete(msg.roomId);
+        break;
     }
   };
 
@@ -314,6 +393,8 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
     dispose: () => {
       unsubscribeHardware?.();
       unsubscribeHardware = null;
+      for (const controller of roomControllers.values()) controller.leave();
+      roomControllers.clear();
       window.removeEventListener("message", onMessage);
     },
   };

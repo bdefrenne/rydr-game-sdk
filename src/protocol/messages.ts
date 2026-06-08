@@ -16,6 +16,8 @@ import type { ButtonName, ButtonEdge } from "./buttons";
 import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards";
 import type { GameDataScope, GameDoc } from "./gamedata";
 import type { ReplayMeta } from "./replays";
+import type { RoomMember } from "./room";
+// RoomEvent shape is documented in ./room; its fields are inlined on the wire messages below.
 
 /** Marker present on every SDK message. */
 interface RydrTagged {
@@ -213,6 +215,48 @@ export interface RunGetMessage extends RydrTagged {
   runId: string;
 }
 
+// ── Realtime rooms ──
+// The shell owns the room WebSocket (the game iframe never connects directly), so identity and
+// telemetry are trusted. The game drives the room through these relay messages; the shell forwards
+// room events back as the `rydr/room.{opened,closed,presence,state,message,telemetry}` family below.
+// `roomId` routes each frame to the right client-side handle (a game may hold several rooms).
+
+/** Ask the shell to join (open) a room. The shell opens the socket and starts forwarding events. */
+export interface RoomJoinMessage extends RydrTagged {
+  type: "rydr/room.join";
+  roomId: string;
+}
+
+/** Ask the shell to leave a room and close its socket. */
+export interface RoomLeaveMessage extends RydrTagged {
+  type: "rydr/room.leave";
+  roomId: string;
+}
+
+/** Relay an opaque game message to the room's other members. */
+export interface RoomSendMessage extends RydrTagged {
+  type: "rydr/room.send";
+  roomId: string;
+  data: unknown;
+}
+
+/** Merge an opaque patch into the room's shared state (last-write-wins) and broadcast it. */
+export interface RoomSetStateMessage extends RydrTagged {
+  type: "rydr/room.setState";
+  roomId: string;
+  patch: Record<string, unknown>;
+}
+
+/** Schedule a server-stamped orchestration event (the "referee whistle"). `at` is optional —
+ *  immediate if omitted, a future server-clock instant if given. See {@link RoomEvent}. */
+export interface RoomScheduleEventMessage extends RydrTagged {
+  type: "rydr/room.scheduleEvent";
+  roomId: string;
+  name: string;
+  payload?: unknown;
+  at?: number;
+}
+
 export type GameToPlatformMessage =
   | HelloMessage
   | ReadyMessage
@@ -236,7 +280,12 @@ export type GameToPlatformMessage =
   | AssetUploadUrlMessage
   | ReplaySaveMessage
   | ReplayGetMessage
-  | RunGetMessage;
+  | RunGetMessage
+  | RoomJoinMessage
+  | RoomLeaveMessage
+  | RoomSendMessage
+  | RoomSetStateMessage
+  | RoomScheduleEventMessage;
 
 // ============================================================
 // Platform → Game
@@ -390,6 +439,67 @@ export interface RunGetResultMessage extends RydrTagged {
   error?: string;
 }
 
+// ── Realtime room events (shell → game) ──
+// Forwarded by the shell from its room socket. All carry `roomId` so the SDK routes them to the
+// matching `joinRoom` handle.
+
+/** The room socket opened. */
+export interface RoomOpenedMessage extends RydrTagged {
+  type: "rydr/room.opened";
+  roomId: string;
+}
+
+/** The room socket closed (left, dropped, or rejected because the room was full). */
+export interface RoomClosedMessage extends RydrTagged {
+  type: "rydr/room.closed";
+  roomId: string;
+}
+
+/** Room membership changed (de-duped by playerId). */
+export interface RoomPresenceMessage extends RydrTagged {
+  type: "rydr/room.presence";
+  roomId: string;
+  members: RoomMember[];
+}
+
+/** The room's shared opaque state changed. */
+export interface RoomStateMessage extends RydrTagged {
+  type: "rydr/room.state";
+  roomId: string;
+  state: Record<string, unknown>;
+}
+
+/** A relayed opaque message from a peer in the room. */
+export interface RoomMessageMessage extends RydrTagged {
+  type: "rydr/room.message";
+  roomId: string;
+  from: string;
+  data: unknown;
+}
+
+/** A trusted, shell-stamped telemetry reading for one room member (raw hardware; `from` is the
+ *  member's playerId). Maps to {@link RoomTelemetry} on the SDK side. */
+export interface RoomTelemetryMessage extends RydrTagged {
+  type: "rydr/room.telemetry";
+  roomId: string;
+  from: string;
+  power?: number;
+  cadence?: number;
+  heartRate?: number;
+  t: number;
+}
+
+/** A server-stamped orchestration event broadcast to the room. Maps to {@link RoomEvent} on the
+ *  SDK side; `from` is the scheduler's playerId and `at` the shared-clock instant to act on. */
+export interface RoomEventMessage extends RydrTagged {
+  type: "rydr/room.event";
+  roomId: string;
+  name: string;
+  payload: unknown;
+  at: number;
+  from: string;
+}
+
 export type PlatformToGameMessage =
   | WelcomeMessage
   | RejectMessage
@@ -409,7 +519,14 @@ export type PlatformToGameMessage =
   | GameDataResultMessage
   | AssetUploadUrlResultMessage
   | ReplayResultMessage
-  | RunGetResultMessage;
+  | RunGetResultMessage
+  | RoomOpenedMessage
+  | RoomClosedMessage
+  | RoomPresenceMessage
+  | RoomStateMessage
+  | RoomMessageMessage
+  | RoomTelemetryMessage
+  | RoomEventMessage;
 
 /** Any message in the protocol. */
 export type RydrMessage = GameToPlatformMessage | PlatformToGameMessage;
