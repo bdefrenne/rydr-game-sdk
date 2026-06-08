@@ -28,7 +28,8 @@
     "dev": "tsc -w -p tsconfig.json",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "version": "node scripts/sync-version.mjs && git add src/protocol/version.ts",
+    "preversion": "node scripts/check-changelog.mjs",
+    "version": "node scripts/sync-version.mjs && node scripts/release-changelog.mjs && git add src/protocol/version.ts CHANGELOG.md",
     "postversion": "git push --follow-tags"
   },
   "devDependencies": {

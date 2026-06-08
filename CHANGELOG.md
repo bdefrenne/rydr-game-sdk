@@ -16,10 +16,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > symbols, and never assume the reader saw an earlier entry. Either it says **"None — additive,
 > no action"** or it lists the precise steps. When the wire protocol changes,
 > `RYDR_PROTOCOL_VERSION` bumps and the callout says so.
+>
+> **Enforced — you cannot release undocumented.** Write changes under `## [Unreleased]` as you go.
+> `npm version` runs a `preversion` gate (`scripts/check-changelog.mjs`) that REFUSES to bump if
+> Unreleased is empty or missing its `### Migration / Action required` callout, then auto-promotes
+> Unreleased → the new `## [x.y.z] — DATE` (`scripts/release-changelog.mjs`). Publish CI re-checks
+> that the tagged version has an entry, so a manual `git tag` can't bypass it either.
 
 ## [Unreleased]
 
 _Nothing yet._
+
+## [1.7.1] — 2026-06-08
+
+### Changed
+- **ESM correctness.** Relative imports in the build now carry explicit `.js` extensions
+  (build switched to `NodeNext`), so the package resolves under native Node ESM, not only
+  inside bundlers.
+
+### Migration / Action required
+- "None — additive, no action." Bundled consumers (Vite, etc.) were unaffected; this only fixes
+  native/non-bundler ESM resolution.
+
+## [1.7.0] — 2026-06-08
+
+### Added
+- **`session.setPowerBar(visible)`** (`rydr/ui.setPowerBar`) — show/hide the shell's trainerless
+  power bar (e.g. hide it inside an editor).
+
+### Changed
+- **Distribution: `@rydr/game-sdk` is now published to npm** (public, scoped). Depend on it from
+  the registry instead of the GitHub git URL — installs are token-free and cached, and semver
+  ranges / `npm update` work normally.
+
+### Migration / Action required
+- **Switch your dependency from the GitHub git URL to the npm range.** In your game's
+  `package.json`:
+  - old: `"@rydr/game-sdk": "github:bdefrenne/rydr-game-sdk#semver:^1.x.0"`
+  - new: `"@rydr/game-sdk": "^1.7.1"`
+
+  then run `npm install` (regenerates the lockfile to resolve from `registry.npmjs.org`). Import
+  paths and API are unchanged — only the dependency source moves.
+
+## [1.6.0] — 2026-06-08
+
+### Added
+- **Realtime rooms (trusted, shell-owned).** `session.joinRoom(roomId)` returns a `RoomHandle`:
+  presence, opaque `send`/`setState`, **trusted `on("telemetry")`** (peers' real, shell-stamped
+  power/cadence/HR — `RoomTelemetry`), and a **server-stamped `scheduleEvent(name, payload?, at?)`**
+  + `on("event")` — the genre-neutral orchestration "whistle" for fair, head-start-free
+  countdowns/turns on a shared clock. The shell owns the socket and relays for the game, so
+  identity and telemetry can't be forged. `createLoopbackRoom` echoes it all for standalone dev.
+- New `rydr/room.*` protocol messages and types `RoomMember` / `RoomTelemetry` / `RoomEvent`.
+
+### Changed
+- **`RYDR_PROTOCOL_VERSION` → 2.** `joinRoom` now relays through the shell instead of opening a
+  direct WebSocket from the game.
+
+### Migration / Action required
+- "None — additive, no action" for games that don't use rooms. To go realtime, call
+  `session.joinRoom(...)`; your own watts are injected into the room by the shell automatically
+  (you only ever read opponents' telemetry).
 
 ## [1.5.0] — 2026-06-08
 
@@ -77,6 +134,9 @@ _Nothing yet._
 Releases before 1.4.0 (v1.0.0 – v1.3.0) predate this changelog; see the git tags and
 commit messages for their history.
 
-[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.7.1
+[1.7.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.7.0
+[1.6.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.6.0
 [1.5.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.5.0
 [1.4.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.4.0
