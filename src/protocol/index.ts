@@ -5,6 +5,7 @@ export * from "./identity.js";
 export * from "./buttons.js";
 export * from "./boards.js";
 export * from "./gamedata.js";
+export * from "./worlds.js";
 export * from "./replays.js";
 export * from "./room.js";
 export * from "./messages.js";

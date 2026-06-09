@@ -13,6 +13,7 @@ import type { ScopedIdentity } from "../protocol/identity.js";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons.js";
 import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards.js";
 import type { GameDataScope, GameDoc } from "../protocol/gamedata.js";
+import type { WorldDoc } from "../protocol/worlds.js";
 import type { ReplayMeta } from "../protocol/replays.js";
 import type { RoomMember, RoomTelemetry, RoomEvent } from "../protocol/room.js";
 import type { PlatformToGameMessage } from "../protocol/messages.js";
@@ -132,6 +133,10 @@ export interface PlatformHostOptions {
   onGetReplay?(runId: string): Promise<{ blob?: string | null; meta?: ReplayMeta | null; error?: string }>;
   /** The game requested a stored run breakdown by `runId`; fetch and return it. */
   onGetRun?(runId: string): Promise<{ breakdown?: unknown; error?: string }>;
+  /** The game asked for the platform's shared worlds; fetch and return them (public read). */
+  onListWorlds?(): Promise<{ worlds?: WorldDoc[]; error?: string }>;
+  /** The game asked for one world by id; fetch and return it (`null` if absent). */
+  onGetWorld?(id: string): Promise<{ world?: WorldDoc | null; error?: string }>;
   /**
    * The game joined a realtime room. The shell opens/owns the socket, injects trusted telemetry,
    * and pushes events back through `sink`; it returns a {@link RoomController} the host uses to
@@ -335,6 +340,30 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           .catch((err) => {
             console.error("[rydr-host] getRun failed:", err);
             post({ rydr: true, type: "rydr/run.result", nonce, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/world.list": {
+        const { nonce } = msg;
+        const handler =
+          options.onListWorlds ?? (async (): Promise<{ error: string }> => ({ error: "worlds not supported" }));
+        void handler()
+          .then((r) => post({ rydr: true, type: "rydr/world.listResult", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] listWorlds failed:", err);
+            post({ rydr: true, type: "rydr/world.listResult", nonce, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/world.get": {
+        const { nonce } = msg;
+        const handler =
+          options.onGetWorld ?? (async (): Promise<{ error: string }> => ({ error: "worlds not supported" }));
+        void handler(msg.id)
+          .then((r) => post({ rydr: true, type: "rydr/world.getResult", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] getWorld failed:", err);
+            post({ rydr: true, type: "rydr/world.getResult", nonce, error: String(err) });
           });
         break;
       }

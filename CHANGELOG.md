@@ -25,7 +25,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **`applyWorld(target, world, { loadGlb })`** (main export) — render a platform `WorldDoc` into your
+  own three.js scene. Renderer-agnostic and pulls in **no** `three` dependency (structural types);
+  you pass your own `GLTFLoader`. See README → "Shared worlds".
+- **`session.listWorlds()` / `session.getWorld(id)`** — read the platform's shared, cross-game 3D
+  environments authored in the platform world editor. New protocol messages `rydr/world.list` and
+  `rydr/world.get`; `RYDR_PROTOCOL_VERSION` → **3** (additive).
+- **`ScopedIdentity.isAdmin?: boolean`** — whether the player is in the platform's admin mode. Use it
+  to reveal an in-game editor entry point.
+
+### Changed
+- In-game editor authoring (`saveContent` / `deleteContent` / `getUploadUrl`, i.e. the `shared`
+  scope) is now gated by **admin mode**, not a per-game author allowlist. The shell relays the admin
+  secret on your behalf; your game never handles the secret.
+
+### Migration / Action required
+
+**Protocol 2 → 3 (additive — existing calls unchanged).** Update the dependency to get worlds + `isAdmin`.
+
+**If your game ships an in-game editor** (authors `shared` content via `saveContent`/`getUploadUrl`):
+- The per-game **author allowlist is removed**. There is no `_authors` list anymore and no need to be
+  added to one. Do **not** call any author-allowlist admin endpoint (it's gone).
+- **Gate your editor UI on `session.identity.isAdmin`** instead. When `true`, your existing
+  `session.saveContent(...)` / `session.getUploadUrl(...)` calls work unchanged — the shell attaches
+  the admin secret for you. When `false`, they reject (as before for non-authors).
+- **Remove any admin-secret handling from an in-shell editor.** If your in-shell editor prompted for /
+  stored the `ADMIN_SECRET` itself, delete that — the shell holds and relays it now. A user becomes
+  admin by entering the secret once in the shell's `?admin` flow.
+- **Standalone editors** (their own `.html`, opened outside the shell, using
+  `createAdminContentBackend`) are unchanged — they still send the admin Bearer directly.
+
+**No editor?** None — additive, no action.
 
 ## [1.7.1] — 2026-06-08
 

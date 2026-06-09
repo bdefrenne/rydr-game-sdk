@@ -17,4 +17,10 @@ export interface ScopedIdentity {
   weightKg?: number;
   /** Functional threshold power in watts — present only if granted. */
   ftp?: number;
+  /**
+   * Whether this player is in the platform's admin mode (holds the admin secret). Lets a game
+   * reveal an in-game editor entry point. This is a UI hint only — the shell relays the actual
+   * authenticated writes (the secret never enters the game), and the backend enforces auth.
+   */
+  isAdmin?: boolean;
 }

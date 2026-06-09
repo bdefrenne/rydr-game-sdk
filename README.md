@@ -140,7 +140,7 @@ Three scopes. `data` is opaque to the platform — the game owns the shape. Docs
 |-------|----------------------|---------|
 | `player` *(default)* | the player only — private saves | `getData` · `listData` · `saveData` · `deleteData` |
 | `public` | owner writes, **world-readable** — player UGC | same methods, with `{ scope: "public" }` |
-| `shared` | **world-readable, author-gated write** — dev-authored content | `getContent` · `listContent` (read) · `saveContent` · `deleteContent` (write) |
+| `shared` | **world-readable, admin-gated write** — dev-authored content | `getContent` · `listContent` (read) · `saveContent` · `deleteContent` (write) |
 
 ```ts
 await session.saveData("saves", "slot1", { level: 4, hp: 80 }); // player-private (default scope)
@@ -148,11 +148,11 @@ const slot = await session.getData("saves", "slot1");           // → GameDoc |
 const tracks = await session.listContent("tracks");             // dev-authored shared content
 ```
 
-> **Player content uses `public`, not `shared`.** `saveContent`/`deleteContent`/`getUploadUrl` are gated by the game's **author allowlist** (checked by `playerId`) — a normal player calling them is **rejected**. Route player-generated content through `saveData(collection, id, value, { scope: "public" })`. Reserve `saveContent`/`getUploadUrl` for in-game **author/admin tooling** (level/chart/song editors).
+> **Player content uses `public`, not `shared`.** `saveContent`/`deleteContent`/`getUploadUrl` write to `shared` and are **admin-gated**: they succeed only when the player is in the platform's admin mode (`session.identity.isAdmin === true`) — the shell relays the admin secret for you; a normal player calling them is **rejected**. Route player-generated content through `saveData(collection, id, value, { scope: "public" })`. Reserve `saveContent`/`getUploadUrl` for in-game **author/admin tooling** (level/chart/song/world editors).
 
 ### Asset upload
 
-For binaries (MP3s, images) backing `shared` content. **Author-gated** (same allowlist as `saveContent`).
+For binaries (MP3s, images, glbs) backing `shared` content. **Admin-gated** (same as `saveContent`).
 
 ```ts
 const { uploadUrl, url } = await session.getUploadUrl({ collection: "songs", filename: "track.mp3" });
@@ -162,16 +162,31 @@ await session.saveContent("songs", "track-1", { title: "…", audioUrl: url }); 
 
 ### Build an in-game editor
 
-Any game can ship an **editor page** where a dev pastes the platform `ADMIN_SECRET` and authors that game's `shared` content (levels, tracks, charts, runs, …). The game reads the same content back through the session (`listContent`/`getContent`) — **one shared backend, no per-game server.**
+Any game can ship an **editor** for its own `shared` content (levels, tracks, charts, worlds, …). The game reads it back through the session (`listContent`/`getContent`) — **one shared backend, no per-game server.** Authoring is **admin-gated**: a write succeeds only when the player holds the platform admin secret.
 
-There are two write paths to `shared` content:
+**The crystal-clear rule:** your game **never handles the secret**. You only:
 
-| Path | Auth | Use it from |
-|------|------|-------------|
-| **Author allowlist** | `playerId` stamped by the shell (via the session) | an editor embedded **in-shell** (has a session) — `session.saveContent(...)` |
-| **Admin Bearer** | `Authorization: Bearer <ADMIN_SECRET>` | a **standalone** editor page (no session) — `createAdminContentBackend(...)` |
+1. **Gate your editor UI** on `session.identity.isAdmin` — show the "Edit" button / editor route only when it's `true`.
+2. **Call the normal session methods** — `saveContent` / `deleteContent` / `getUploadUrl`. The shell attaches the admin secret on your behalf (it holds it; your iframe never sees it). For a non-admin player these reject; for an admin they succeed.
 
-A standalone editor (its own `.html`, opened outside the shell) has no session, so it uses the admin Bearer path. Prompt for the secret once, keep it in `sessionStorage` (never in the repo), and build a backend:
+```ts
+// in-game editor (embedded in the shell — the normal case)
+if (session.identity.isAdmin) {
+  showEditorButton();
+}
+// …when the author saves:
+const { uploadUrl, url } = await session.getUploadUrl({ collection: "songs", filename: "track.mp3" });
+await fetch(uploadUrl, { method: "PUT", body: file });
+await session.saveContent("songs", "track-1", { title: "…", audioUrl: url });
+// players read it back with no special rights:
+const tracks = await session.listContent("songs");
+```
+
+That's the whole contract. **No author allowlist, no secret in your game, no per-game server.** To *become* admin, a user enters the secret once via the shell's `?admin` flow (stored in the shell's localStorage) — your game just reads `isAdmin`.
+
+#### Standalone editor (outside the shell)
+
+If your editor is its own `.html` opened **outside** the shell, it has no session, so it talks to the backend directly with the admin Bearer. Prompt for the secret once, keep it in `localStorage` (never in the repo), and build a backend:
 
 ```ts
 import { createAdminContentBackend } from "@rydr/game-sdk";
@@ -199,6 +214,24 @@ const { url } = await admin.uploadAsset({ collection: "art", filename: "bg.png",
 The game then reads the published docs with the session: `await session.listContent("levels")`. (Drafts are hidden from the public read until you `save` without `draft`.)
 
 > **Security boundary.** `ADMIN_SECRET` is the platform owner's key — full write to **any** game's shared content. It's an authoring-time credential, entered at runtime and **never shipped to players**. Player-generated content uses the `public` owner-write scope (`saveData(..., { scope: "public" })`), not this backend.
+
+### Shared worlds
+
+The platform has a first-party **world editor** that authors reusable 3D environments (terrain + props + lighting). Any game can load one — the world is pure environment; your game layers gameplay on top (spawns, a track, …), keyed by the world id in your own game-data.
+
+`applyWorld` is renderer-agnostic and pulls in **no** `three` dependency from the SDK — you bring your own three.js + `GLTFLoader`:
+
+```ts
+import { applyWorld } from "@rydr/game-sdk";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+
+const loader = new GLTFLoader();
+const worlds = await session.listWorlds();           // pick one, or use a known id
+const world  = await session.getWorld(worlds[0].id);
+await applyWorld(scene, world, { loadGlb: (url) => loader.loadAsync(url).then((g) => g.scene) });
+```
+
+Authoring worlds happens in the platform's editor (admin-gated), not in your game; your game only **reads** them.
 
 ### Realtime rooms
 

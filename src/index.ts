@@ -9,3 +9,4 @@
 export * from "./protocol/index.js";
 export * from "./client/index.js";
 export * from "./host/index.js";
+export * from "./world-runtime.js";

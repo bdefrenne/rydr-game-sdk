@@ -15,6 +15,7 @@ import type { ScopedIdentity } from "./identity.js";
 import type { ButtonName, ButtonEdge } from "./buttons.js";
 import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards.js";
 import type { GameDataScope, GameDoc } from "./gamedata.js";
+import type { WorldDoc } from "./worlds.js";
 import type { ReplayMeta } from "./replays.js";
 import type { RoomMember } from "./room.js";
 // RoomEvent shape is documented in ./room; its fields are inlined on the wire messages below.
@@ -213,6 +214,20 @@ export interface ReplayGetMessage extends RydrTagged {
   runId: string;
 }
 
+/** List the platform's shared worlds (cross-game environments). Reply:
+ *  {@link WorldListResultMessage}. Public read — no auth. */
+export interface WorldListMessage extends RydrTagged {
+  type: "rydr/world.list";
+  nonce: number;
+}
+
+/** Fetch one world by id. Reply: {@link WorldGetResultMessage} (`world`, `null` if absent). */
+export interface WorldGetMessage extends RydrTagged {
+  type: "rydr/world.get";
+  nonce: number;
+  id: string;
+}
+
 /** Read back an opaque run breakdown by `runId` (the one saved via {@link RunSaveMessage}).
  *  Reply: {@link RunGetResultMessage}. */
 export interface RunGetMessage extends RydrTagged {
@@ -288,6 +303,8 @@ export type GameToPlatformMessage =
   | ReplaySaveMessage
   | ReplayGetMessage
   | RunGetMessage
+  | WorldListMessage
+  | WorldGetMessage
   | RoomJoinMessage
   | RoomLeaveMessage
   | RoomSendMessage
@@ -446,6 +463,22 @@ export interface RunGetResultMessage extends RydrTagged {
   error?: string;
 }
 
+/** Reply to {@link WorldListMessage} (matched by `nonce`). */
+export interface WorldListResultMessage extends RydrTagged {
+  type: "rydr/world.listResult";
+  nonce: number;
+  worlds?: WorldDoc[];
+  error?: string;
+}
+
+/** Reply to {@link WorldGetMessage} (matched by `nonce`): the `world`, or `null` if absent. */
+export interface WorldGetResultMessage extends RydrTagged {
+  type: "rydr/world.getResult";
+  nonce: number;
+  world?: WorldDoc | null;
+  error?: string;
+}
+
 // ── Realtime room events (shell → game) ──
 // Forwarded by the shell from its room socket. All carry `roomId` so the SDK routes them to the
 // matching `joinRoom` handle.
@@ -527,6 +560,8 @@ export type PlatformToGameMessage =
   | AssetUploadUrlResultMessage
   | ReplayResultMessage
   | RunGetResultMessage
+  | WorldListResultMessage
+  | WorldGetResultMessage
   | RoomOpenedMessage
   | RoomClosedMessage
   | RoomPresenceMessage

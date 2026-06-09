@@ -16,6 +16,7 @@ import type {
   SubmitScoreResult,
 } from "../protocol/boards.js";
 import type { GameDoc, GameDataScope } from "../protocol/gamedata.js";
+import type { WorldDoc } from "../protocol/worlds.js";
 import type { ReplayBody, ReplayFrame, ReplayMeta, ReplayRef } from "../protocol/replays.js";
 import { decodeReplay, encodeReplay } from "./replayCodec.js";
 import type {
@@ -25,6 +26,8 @@ import type {
   AssetUploadUrlResultMessage,
   ReplayResultMessage,
   RunGetResultMessage,
+  WorldListResultMessage,
+  WorldGetResultMessage,
 } from "../protocol/messages.js";
 import { isPlatformToGameMessage } from "../protocol/guards.js";
 import { HardwareStore } from "./HardwareStore.js";
@@ -151,6 +154,12 @@ export interface PlatformSession {
    * store the public `url` in a doc via {@link saveContent}.
    */
   getUploadUrl(opts: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl: string; url: string }>;
+
+  // ── Worlds (shared, cross-game 3D environments authored in the platform world editor) ──
+  /** List the platform's shared worlds (public read). */
+  listWorlds(): Promise<WorldDoc[]>;
+  /** Fetch one shared world by id. `null` if absent. */
+  getWorld(id: string): Promise<WorldDoc | null>;
 
   /**
    * Join a realtime room (presence + relay + opaque shared state + trusted peer telemetry). The
@@ -363,6 +372,12 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         case "rydr/run.result":
           pending.get(msg.nonce)?.(msg);
           break;
+        case "rydr/world.listResult":
+          pending.get(msg.nonce)?.(msg);
+          break;
+        case "rydr/world.getResult":
+          pending.get(msg.nonce)?.(msg);
+          break;
         case "rydr/room.opened":
           rooms.get(msg.roomId)?.({ type: "rydr/room.opened" });
           break;
@@ -470,6 +485,20 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         ).then((r) => {
           if (r.error) throw new Error(`[rydr-sdk] getRun: ${r.error}`);
           return r.breakdown ?? null;
+        }),
+      listWorlds: () =>
+        request<WorldListResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/world.list", nonce }),
+        ).then((r) => {
+          if (r.error) throw new Error(`[rydr-sdk] listWorlds: ${r.error}`);
+          return r.worlds ?? [];
+        }),
+      getWorld: (id) =>
+        request<WorldGetResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/world.get", nonce, id }),
+        ).then((r) => {
+          if (r.error) throw new Error(`[rydr-sdk] getWorld: ${r.error}`);
+          return r.world ?? null;
         }),
       saveReplay: async (runId, frames, opts) => {
         const { blob, meta } = await encodeReplay(frames, opts?.version ?? 1);
