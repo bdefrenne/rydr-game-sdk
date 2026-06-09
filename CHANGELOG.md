@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.8.0] — 2026-06-09
 ### Added
 - **`applyWorld(target, world, { loadGlb })`** (main export) — render a platform `WorldDoc` into your
   own three.js scene. Renderer-agnostic and pulls in **no** `three` dependency (structural types);
@@ -165,7 +168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before 1.4.0 (v1.0.0 – v1.3.0) predate this changelog; see the git tags and
 commit messages for their history.
 
-[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.8.0
 [1.7.1]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.7.1
 [1.7.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.7.0
 [1.6.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.6.0
