@@ -25,7 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+- **Docs only.** Clarified that an in-game editor is **always opened inside the shell** and authors
+  through the session, gated on `session.identity.isAdmin` — a game never handles the `ADMIN_SECRET`.
+  Removed the guidance that suggested a "standalone" editor page sending the admin Bearer.
+  `createAdminContentBackend` is now documented as **platform-owner out-of-band tooling only**, never
+  a game or its editor. No code, API, or protocol change.
+
+### Migration / Action required
+- "None — documentation only." If your editor handles the `ADMIN_SECRET` itself (e.g. via
+  `createAdminContentBackend`), move it into the shell and gate on `session.identity.isAdmin` instead
+  — see README → "Build an in-game editor".
 
 ## [1.8.0] — 2026-06-09
 ### Added
@@ -53,11 +63,12 @@ _Nothing yet._
 - **Gate your editor UI on `session.identity.isAdmin`** instead. When `true`, your existing
   `session.saveContent(...)` / `session.getUploadUrl(...)` calls work unchanged — the shell attaches
   the admin secret for you. When `false`, they reject (as before for non-authors).
-- **Remove any admin-secret handling from an in-shell editor.** If your in-shell editor prompted for /
-  stored the `ADMIN_SECRET` itself, delete that — the shell holds and relays it now. A user becomes
-  admin by entering the secret once in the shell's `?admin` flow.
-- **Standalone editors** (their own `.html`, opened outside the shell, using
-  `createAdminContentBackend`) are unchanged — they still send the admin Bearer directly.
+- **Remove all admin-secret handling from your editor.** An editor is opened *inside* the shell (a
+  guest at e.g. `/game/<your-game>/run-editor`) and authors through the session, gated on
+  `isAdmin`. If your editor ever prompted for / stored the `ADMIN_SECRET` (including a "standalone"
+  editor page using `createAdminContentBackend`), delete that — a game never handles the secret; the
+  shell holds and relays it. A user becomes admin via the shell's `?admin` flow. `createAdminContentBackend`
+  is for the platform owner's own out-of-band tooling only, never a game or its editor.
 
 **No editor?** None — additive, no action.
 
@@ -111,19 +122,6 @@ _Nothing yet._
 - "None — additive, no action" for games that don't use rooms. To go realtime, call
   `session.joinRoom(...)`; your own watts are injected into the room by the shell automatically
   (you only ever read opponents' telemetry).
-
-## [1.5.0] — 2026-06-08
-
-### Added
-- **In-game editor backend** — `createAdminContentBackend({ host, gameId, getSecret })`
-  returns an `AdminContentBackend` (`list` / `get` / `save` / `remove` / `uploadAsset`) for
-  standalone editor pages. It's the authoring-time mirror of the session content API
-  (`getContent` / `saveContent`): a page with no platform session writes `shared` gamedata
-  over HTTP with `Authorization: Bearer <ADMIN_SECRET>`. The game reads the same content back
-  through `session.listContent` / `getContent`. New README section "Build an in-game editor".
-
-### Migration / Action required
-- "None — additive, no action." New export only; existing code is unaffected.
 
 <!-- Entry template — every release MUST end with a Migration / Action required callout.
      The callout must be self-contained: a reader on the previous version does exactly what

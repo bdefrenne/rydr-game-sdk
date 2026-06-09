@@ -162,7 +162,7 @@ await session.saveContent("songs", "track-1", { title: "…", audioUrl: url }); 
 
 ### Build an in-game editor
 
-Any game can ship an **editor** for its own `shared` content (levels, tracks, charts, worlds, …). The game reads it back through the session (`listContent`/`getContent`) — **one shared backend, no per-game server.** Authoring is **admin-gated**: a write succeeds only when the player holds the platform admin secret.
+Any game can ship an **editor** for its own `shared` content (levels, tracks, charts, worlds, …). The game reads it back through the session (`listContent`/`getContent`) — **one shared backend, no per-game server.** Authoring is **admin-gated**: a write succeeds only when the user is in the shell's admin mode (the shell holds the secret — the game never does).
 
 **The crystal-clear rule:** your game **never handles the secret**. You only:
 
@@ -184,36 +184,37 @@ const tracks = await session.listContent("songs");
 
 That's the whole contract. **No author allowlist, no secret in your game, no per-game server.** To *become* admin, a user enters the secret once via the shell's `?admin` flow (stored in the shell's localStorage) — your game just reads `isAdmin`.
 
-#### Standalone editor (outside the shell)
+#### There is exactly one way: open the editor in the shell and gate on `isAdmin`
 
-If your editor is its own `.html` opened **outside** the shell, it has no session, so it talks to the backend directly with the admin Bearer. Prompt for the secret once, keep it in `localStorage` (never in the repo), and build a backend:
+**An editor is not a standalone app — it is itself a guest the shell loads.** It is *always* opened inside the platform shell, and it authors through the session, gated on `session.identity.isAdmin`. There is **no** "outside the shell" editor, and a game **never** prompts for, stores, or sends the `ADMIN_SECRET`. It doesn't have the secret and doesn't need it — the shell holds it and relays the authenticated write. If you're pasting a Bearer into a page, that page has stopped being a guest and you've broken the security boundary. Don't.
+
+How it works end to end:
+
+1. Your editor lives at a path on your game's origin — a route or a static page (e.g. `run-editor.html`).
+2. The shell opens it as a guest via a deep link: `/game/<your-game>/run-editor` mounts `https://<your-game-origin>/run-editor` in the guest iframe; your own host/router resolves the path.
+3. That page calls `connectToPlatform()` exactly like the game does and receives a session with `identity.isAdmin` stamped by the shell.
+4. To *become* admin, the user enters the secret once in the shell's `?admin` flow (stored in the shell's localStorage). The editor only ever reads `isAdmin`.
 
 ```ts
-import { createAdminContentBackend } from "@rydr/game-sdk";
-
-const SECRET_KEY = "admin.secret";
-function getSecret(): string {
-  let s = sessionStorage.getItem(SECRET_KEY);
-  if (!s) { s = prompt("ADMIN_SECRET")?.trim() ?? ""; if (s) sessionStorage.setItem(SECRET_KEY, s); }
-  return s;
+// run-editor.html — a guest page, opened in the shell at /game/<your-game>/run-editor
+const session = await connectToPlatform({ gameId: "my-game", capabilities: ["identity"] });
+if (!session.identity.isAdmin) {
+  // Not in admin mode — show "unlock admin mode in the shell", author nothing.
+  return;
 }
-
-const admin = createAdminContentBackend({
-  host: "https://my-game.partykit.dev", // platform origin (or http://localhost:1999 in dev)
-  gameId: "my-game",
-  getSecret,
-});
-
-const levels = await admin.list("levels");                 // includes drafts (Bearer is sent)
-await admin.save("levels", "level-1", { waves: [...] });   // publish
-await admin.save("levels", "wip", { ... }, { draft: true }); // hidden from players until published
-await admin.remove("levels", "old");
-const { url } = await admin.uploadAsset({ collection: "art", filename: "bg.png", contentType: "image/png", body: file });
+// Admin: author through the session. The shell attaches the secret; this iframe never sees it.
+const { uploadUrl, url } = await session.getUploadUrl({ collection: "levels", filename: "bg.png" });
+await fetch(uploadUrl, { method: "PUT", body: file });
+await session.saveContent("levels", "level-1", { name: "…", bgUrl: url, draft: false });
+const levels = await session.listContent("levels"); // includes drafts for an admin; players see only published
+await session.deleteContent("levels", "old");
 ```
 
-The game then reads the published docs with the session: `await session.listContent("levels")`. (Drafts are hidden from the public read until you `save` without `draft`.)
+> **Drafts are your data, not a platform flag.** `saveContent` takes no `draft` argument — a doc's draft/published state is just a field in the content you store (`{ draft: true, … }`). Your editor writes it; your game and lobby read it and hide drafts from non-admins (admins keep seeing them via the same `isAdmin`).
 
-> **Security boundary.** `ADMIN_SECRET` is the platform owner's key — full write to **any** game's shared content. It's an authoring-time credential, entered at runtime and **never shipped to players**. Player-generated content uses the `public` owner-write scope (`saveData(..., { scope: "public" })`), not this backend.
+> **Security boundary.** `ADMIN_SECRET` is the platform owner's key — full write to **any** game's shared content. It lives only in the shell, is **never shipped to a game or guest**, and is never entered into editor code. Player-generated content uses the `public` owner-write scope (`saveData(..., { scope: "public" })`), not admin auth.
+
+> **`createAdminContentBackend` is not for games.** The SDK exports a low-level Bearer client (`createAdminContentBackend`) for the **platform owner's own** out-of-band tooling — a first-party admin console on the shell's origin, a seed/migration script — code that legitimately holds the secret. It is **never** bundled into a game or a game's editor. If you're in a game, use the session.
 
 ### Shared worlds
 

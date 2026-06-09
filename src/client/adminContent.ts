@@ -1,28 +1,29 @@
 /**
- * Admin content backend — the authoring-time mirror of the player-facing
- * content API ({@link PlatformSession.getContent} / `saveContent`), for
- * standalone in-game editor pages.
+ * Admin content backend — a low-level Bearer client for `shared` gamedata,
+ * intended for the **platform owner's own** out-of-band tooling: a first-party
+ * admin console on the shell's origin, a seed/migration script, CI. Code that
+ * legitimately holds the `ADMIN_SECRET`.
  *
- * A standalone editor page (e.g. `run-editor.html`, `track-editor.html`) has no
- * platform session, so it authenticates with the platform owner's
- * `ADMIN_SECRET` (Bearer) instead of the author allowlist. This factory wraps
- * the generic gamedata party's HTTP contract for one `gameId` so editors don't
- * hand-roll `fetch` + headers:
+ * NOT for games or their editors. A game — and a game's editor, which is just
+ * another guest the shell loads — never holds the secret. An editor is opened
+ * inside the shell, gates on `session.identity.isAdmin`, and authors through
+ * the session (`saveContent` / `deleteContent` / `getUploadUrl`); the shell
+ * relays the authenticated write. See the "Build an in-game editor" guide in
+ * the README. If you reach for this from inside a game you've broken the
+ * security boundary — use the session instead.
+ *
+ * This factory wraps the generic gamedata party's HTTP contract for one
+ * `gameId` so owner tooling doesn't hand-roll `fetch` + headers:
  *
  *   - read  (public):   `GET    {host}/parties/gamedata/{gameId}/shared/{collection}[/{id}]`
  *   - write (Bearer):   `PUT    …/shared/{collection}/{id}`   body `{ data, draft? }`
  *   - delete(Bearer):   `DELETE …/shared/{collection}/{id}`
  *   - asset (Bearer):   `POST   …/{gameId}/asset/upload-url` → presigned R2 PUT
  *
- * The game reads the SAME content back through the SDK session
- * (`session.listContent` / `getContent`) — one shared backend, no per-game
- * server. See the "Build an in-game editor" guide in the README.
- *
  * SECURITY: `ADMIN_SECRET` is the platform owner's key (full write to any
- * game's shared content). It is an authoring-time credential, entered at
- * runtime (kept in `sessionStorage`, never in the repo) and never shipped to
- * players. Player-generated content uses the SDK's public owner-write scope
- * instead, not this backend.
+ * game's shared content). Authoring-time only, entered at runtime, never
+ * shipped to players and never bundled into a game or guest. Player-generated
+ * content uses the SDK's public owner-write scope instead, not this backend.
  */
 
 import type { GameDoc } from "../protocol/gamedata.js";
