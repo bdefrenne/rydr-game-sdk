@@ -32,6 +32,8 @@ const PLATFORM_TO_GAME_TYPES: ReadonlySet<string> = new Set([
   "rydr/asset.uploadUrlResult",
   "rydr/replay.result",
   "rydr/run.result",
+  "rydr/world.listResult",
+  "rydr/world.getResult",
   "rydr/room.opened",
   "rydr/room.closed",
   "rydr/room.presence",

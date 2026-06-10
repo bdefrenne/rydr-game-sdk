@@ -87,15 +87,16 @@ export interface RouteChangedMessage extends RydrTagged {
   path: string;
 }
 
-/** Game asks the shell to show/hide its chrome (e.g. hide the navbar during active play). */
-export interface SetChromeMessage extends RydrTagged {
-  type: "rydr/ui.setChrome";
-  visible: boolean;
-}
-
 /** Game asks the shell to show/hide the trainerless power bar (e.g. hide it in an editor). */
 export interface SetPowerBarMessage extends RydrTagged {
   type: "rydr/ui.setPowerBar";
+  visible: boolean;
+}
+
+/** Game asks the shell to show/hide the in-game platform menu (the hamburger that opens
+ *  Exit + hardware/settings/profile), e.g. hide it during fully-immersive play. */
+export interface SetMenuMessage extends RydrTagged {
+  type: "rydr/ui.setMenu";
   visible: boolean;
 }
 
@@ -287,8 +288,8 @@ export type GameToPlatformMessage =
   | TrainerSetTargetPowerMessage
   | TrainerSetErgModeMessage
   | RouteChangedMessage
-  | SetChromeMessage
   | SetPowerBarMessage
+  | SetMenuMessage
   | ExitRequestMessage
   | RequestHardwareModalMessage
   | GameErrorMessage

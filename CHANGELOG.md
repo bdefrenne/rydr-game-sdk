@@ -25,7 +25,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **`session.setMenu(visible)`** — a game can show/hide the shell's in-game platform menu (the
+  hamburger that opens Exit + hardware/settings/profile), e.g. to hide it during fully-immersive
+  play. Mirrors the existing `setPowerBar` control. New wire message `rydr/ui.setMenu`
+  (`SetMenuMessage`) and host hook `onMenuRequest(visible)` on `PlatformHostOptions`.
+
+### Removed
+- **`session.setChrome(visible)`** and its wire message `rydr/ui.setChrome` (`SetChromeMessage`)
+  + host hook `onChromeRequest`. The shell already always hides its navbar while a game is running,
+  so the toggle was a no-op — the platform never acted on it. Use `session.setMenu(visible)` to
+  control the in-game hamburger menu instead.
+
+### Fixed
+- The shell→game replies `rydr/world.listResult` and `rydr/world.getResult` (the `world.list` /
+  `world.get` responses added in 1.8.0) were missing from the inbound message guard, so they were
+  rejected before reaching the game. Added them to the allowlist; world lookups now resolve.
+
+### Migration / Action required
+- **Remove any `session.setChrome(...)` calls.** They no longer compile against this SDK. There is
+  no replacement: the shell navbar is always hidden during gameplay automatically. If you were
+  hiding the in-game menu, use `session.setMenu(false)` / `session.setMenu(true)` instead.
+  `RYDR_PROTOCOL_VERSION` bumps `3 → 4` for the removed message. At runtime the removal is
+  backward-compatible — an older game that still posts `rydr/ui.setChrome` is silently ignored by
+  the shell (as it already was) — but the symbol is gone from the typed API, so update any caller.
 
 ## [1.8.1] — 2026-06-09
 ### Changed

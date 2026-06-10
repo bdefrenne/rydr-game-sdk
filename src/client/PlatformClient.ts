@@ -170,10 +170,11 @@ export interface PlatformSession {
 
   /** Tell the shell the game's internal route changed (for URL projection). */
   setRoute(path: string): void;
-  /** Ask the shell to show/hide its chrome (navbar). Default is visible. */
-  setChrome(visible: boolean): void;
   /** Ask the shell to show/hide the trainerless power bar. Default is visible. */
   setPowerBar(visible: boolean): void;
+  /** Ask the shell to show/hide the in-game platform menu (the hamburger that opens
+   *  Exit + hardware/settings/profile). Default is visible. */
+  setMenu(visible: boolean): void;
   /** Ask the shell to exit the game (back to the launcher). */
   requestExit(): void;
   /** Ask the shell to surface its hardware (reconnect) UI. */
@@ -578,8 +579,8 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         return handle;
       },
       setRoute: (path) => post({ rydr: true, type: "rydr/route.changed", path }),
-      setChrome: (visible) => post({ rydr: true, type: "rydr/ui.setChrome", visible }),
       setPowerBar: (visible) => post({ rydr: true, type: "rydr/ui.setPowerBar", visible }),
+      setMenu: (visible) => post({ rydr: true, type: "rydr/ui.setMenu", visible }),
       requestExit: () => post({ rydr: true, type: "rydr/exitRequest" }),
       requestHardwareModal: () => post({ rydr: true, type: "rydr/ui.requestHardwareModal" }),
       reportError: (message) => post({ rydr: true, type: "rydr/error", message }),
