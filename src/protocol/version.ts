@@ -9,4 +9,4 @@
 export const RYDR_PROTOCOL_VERSION = 4 as const;
 
 /** Semver of this SDK build. Sent in the handshake for telemetry/debugging. */
-export const RYDR_SDK_VERSION = "1.8.1";
+export const RYDR_SDK_VERSION = "1.9.0";

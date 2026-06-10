@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.9.0] — 2026-06-10
 ### Added
 - **`session.setMenu(visible)`** — a game can show/hide the shell's in-game platform menu (the
   hamburger that opens Exit + hardware/settings/profile), e.g. to hide it during fully-immersive
@@ -192,7 +195,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before 1.4.0 (v1.0.0 – v1.3.0) predate this changelog; see the git tags and
 commit messages for their history.
 
-[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.9.0
 [1.8.1]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.8.1
 [1.8.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.8.0
 [1.7.1]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.7.1
