@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > that the tagged version has an entry, so a manual `git tag` can't bypass it either.
 
 ## [Unreleased]
+
+_Nothing yet._
+
+## [1.12.0] — 2026-06-15
 ### Added
 - **`session.hardware.current.smoothedPower`** — an EMA-smoothed power (watts) on the hardware
   snapshot, alongside raw `power`. It's a time-based exponential moving average advanced from a
@@ -37,7 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the client). `τ = 0` disables smoothing (`smoothedPower` mirrors `power`).
 
 ### Migration / Action required
-- **None — additive, no action.** `RYDR_PROTOCOL_VERSION` stays `5`: `welcome.powerSmoothing` is
+- **None — additive, no action.** `RYDR_PROTOCOL_VERSION` **bumped 4 → 5** — the new optional
+  `welcome.powerSmoothing` field is an additive protocol-shape change. `welcome.powerSmoothing` is
   optional, so older shells simply omit it and the client falls back to `DEFAULT_POWER_TAU_S`.
   Games that today maintain their own power EMA can delete it and read
   `session.hardware.current.smoothedPower` instead; to match a previous hand-rolled time constant,
@@ -211,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before 1.4.0 (v1.0.0 – v1.3.0) predate this changelog; see the git tags and
 commit messages for their history.
 
-[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/bdefrenne/rydr-game-sdk/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.12.0
 [1.9.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.9.0
 [1.8.1]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.8.1
 [1.8.0]: https://github.com/bdefrenne/rydr-game-sdk/releases/tag/v1.8.0
