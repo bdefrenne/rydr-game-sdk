@@ -24,8 +24,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > that the tagged version has an entry, so a manual `git tag` can't bypass it either.
 
 ## [Unreleased]
+### Added
+- **`session.hardware.current.smoothedPower`** — an EMA-smoothed power (watts) on the hardware
+  snapshot, alongside raw `power`. It's a time-based exponential moving average advanced from a
+  wall-clock delta each time the snapshot is read, so it ramps smoothly between the sparse
+  (~1–4Hz) `rydr/hw.power` messages and is **frame-rate independent** (same result at 30/60/120fps).
+  Computed in-iframe in the SDK client — **no extra wire traffic**.
+- **Configurable smoothing strength (time constant τ, seconds).** Resolution order:
+  the manifest value (new optional `welcome.powerSmoothing`, surfaced as `powerSmoothing` on
+  `PlatformHostOptions` and set per game in the platform's `GameManifest` / admin) →
+  `connectToPlatform({ powerSmoothing })` → the SDK default `DEFAULT_POWER_TAU_S` (0.06s, exported
+  from the client). `τ = 0` disables smoothing (`smoothedPower` mirrors `power`).
 
-_Nothing yet._
+### Migration / Action required
+- **None — additive, no action.** `RYDR_PROTOCOL_VERSION` stays `5`: `welcome.powerSmoothing` is
+  optional, so older shells simply omit it and the client falls back to `DEFAULT_POWER_TAU_S`.
+  Games that today maintain their own power EMA can delete it and read
+  `session.hardware.current.smoothedPower` instead; to match a previous hand-rolled time constant,
+  set `powerSmoothing` in the game's manifest (the default already matches RYDR's prior 0.06s).
 
 ## [1.9.0] — 2026-06-10
 ### Added

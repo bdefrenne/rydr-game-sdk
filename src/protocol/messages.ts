@@ -15,7 +15,7 @@ import type { ScopedIdentity } from "./identity.js";
 import type { ButtonName, ButtonEdge } from "./buttons.js";
 import type { BoardDefinition, BoardEntry, SubmitScoreResult } from "./boards.js";
 import type { GameDataScope, GameDoc } from "./gamedata.js";
-import type { WorldDoc } from "./worlds.js";
+import type { CoreWorld } from "./worlds.js";
 import type { ReplayMeta } from "./replays.js";
 import type { RoomMember } from "./room.js";
 // RoomEvent shape is documented in ./room; its fields are inlined on the wire messages below.
@@ -192,6 +192,35 @@ export interface AssetUploadUrlMessage extends RydrTagged {
 }
 
 /**
+ * Request a presigned upload URL for a captured highlight (a still or a short video clip the game
+ * grabbed from its own canvas). Reply: {@link MediaUploadUrlResultMessage}. The shell namespaces the
+ * R2 object by the player; the game then PUTs the bytes straight to R2 (keeping large video off the
+ * postMessage channel) and follows up with {@link MediaSavedMessage}.
+ */
+export interface MediaUploadUrlMessage extends RydrTagged {
+  type: "rydr/media.uploadUrl";
+  nonce: number;
+  kind: "image" | "video";
+  filename: string;
+  contentType?: string;
+}
+
+/** Notify the shell that a highlight finished uploading, so it can attach it to this session's
+ *  recorded activity (keyed by the session `runId`). Fire-and-forget. */
+export interface MediaSavedMessage extends RydrTagged {
+  type: "rydr/media.saved";
+  /** Public URL the bytes were uploaded to (from {@link MediaUploadUrlResultMessage}). */
+  url: string;
+  kind: "image" | "video";
+  /** Optional game-supplied moment label (e.g. "finish", "sprint"). */
+  label?: string;
+  /** Platform-clock ms timestamp of the moment. */
+  t: number;
+  /** Clip length in ms (videos only). */
+  durationMs?: number;
+}
+
+/**
  * Save a replay/ghost keyed by `runId`: the `blob` is the game's compressed frame time-series
  * (base64; opaque at this layer — the SDK encodes a `ReplayFrame[]` into it), and `meta` is the
  * SDK-derived display summary persisted alongside it for ghost lists. The shell relays the
@@ -235,6 +264,28 @@ export interface RunGetMessage extends RydrTagged {
   type: "rydr/run.get";
   nonce: number;
   runId: string;
+}
+
+/**
+ * Mark the start of a named moment within the live ride (a level, a wave). The shell opens a
+ * segment on its session recording — capturing the effort window (duration, avg/peak power, avg
+ * HR) itself — and replies with {@link SegmentStartResultMessage} carrying a platform-clock start
+ * timestamp. One segment is open at a time: starting a new one closes any still-open segment.
+ */
+export interface SegmentStartMessage extends RydrTagged {
+  type: "rydr/segment.start";
+  nonce: number;
+  /** Human label for the moment, e.g. `Level "Crazy Song"` or `Wave 2`. */
+  name: string;
+}
+
+/**
+ * Close the currently-open segment, attaching opaque game-specific stats (score, stars, kills…).
+ * Fire-and-forget; the shell stores `data` as-is and computes the effort summary itself.
+ */
+export interface SegmentEndMessage extends RydrTagged {
+  type: "rydr/segment.end";
+  data?: unknown;
 }
 
 // ── Realtime rooms ──
@@ -301,11 +352,15 @@ export type GameToPlatformMessage =
   | GameDataSaveMessage
   | GameDataDeleteMessage
   | AssetUploadUrlMessage
+  | MediaUploadUrlMessage
+  | MediaSavedMessage
   | ReplaySaveMessage
   | ReplayGetMessage
   | RunGetMessage
   | WorldListMessage
   | WorldGetMessage
+  | SegmentStartMessage
+  | SegmentEndMessage
   | RoomJoinMessage
   | RoomLeaveMessage
   | RoomSendMessage
@@ -331,6 +386,9 @@ export interface WelcomeMessage extends RydrTagged {
   /** The `rydr` backend host (e.g. `rydr.bdefrenne.partykit.dev`) — lets the SDK open a direct
    *  WebSocket for realtime rooms (`joinRoom`). HTTP data calls still go through the relay. */
   dataHost?: string;
+  /** Per-game power-smoothing time constant (seconds) from the manifest, for
+   *  `HardwareSnapshot.smoothedPower`. Omitted ⇒ the SDK default applies. */
+  powerSmoothing?: number;
 }
 
 /** Rejects the handshake (e.g. unknown game, unsupported protocol, denied capabilities). */
@@ -444,6 +502,15 @@ export interface AssetUploadUrlResultMessage extends RydrTagged {
   error?: string;
 }
 
+/** Reply to {@link MediaUploadUrlMessage}: a presigned PUT `uploadUrl` + the eventual public `url`. */
+export interface MediaUploadUrlResultMessage extends RydrTagged {
+  type: "rydr/media.uploadUrlResult";
+  nonce: number;
+  uploadUrl?: string;
+  url?: string;
+  error?: string;
+}
+
 /** Reply to {@link ReplaySaveMessage} / {@link ReplayGetMessage} (matched by `nonce`):
  *  save→`ok`; get→`blob`+`meta` (`null` when not found). `error` set on failure. */
 export interface ReplayResultMessage extends RydrTagged {
@@ -464,11 +531,20 @@ export interface RunGetResultMessage extends RydrTagged {
   error?: string;
 }
 
+/** Reply to {@link SegmentStartMessage} (matched by `nonce`): the platform-clock ms at which the
+ *  segment opened, so the game can align its own timeline. `error` set if the segment couldn't open. */
+export interface SegmentStartResultMessage extends RydrTagged {
+  type: "rydr/segment.startResult";
+  nonce: number;
+  startedAt: number;
+  error?: string;
+}
+
 /** Reply to {@link WorldListMessage} (matched by `nonce`). */
 export interface WorldListResultMessage extends RydrTagged {
   type: "rydr/world.listResult";
   nonce: number;
-  worlds?: WorldDoc[];
+  worlds?: CoreWorld[];
   error?: string;
 }
 
@@ -476,7 +552,7 @@ export interface WorldListResultMessage extends RydrTagged {
 export interface WorldGetResultMessage extends RydrTagged {
   type: "rydr/world.getResult";
   nonce: number;
-  world?: WorldDoc | null;
+  world?: CoreWorld | null;
   error?: string;
 }
 
@@ -559,8 +635,10 @@ export type PlatformToGameMessage =
   | LeaderboardQueryResultMessage
   | GameDataResultMessage
   | AssetUploadUrlResultMessage
+  | MediaUploadUrlResultMessage
   | ReplayResultMessage
   | RunGetResultMessage
+  | SegmentStartResultMessage
   | WorldListResultMessage
   | WorldGetResultMessage
   | RoomOpenedMessage

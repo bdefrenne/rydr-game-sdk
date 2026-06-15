@@ -16,7 +16,7 @@ import type {
   SubmitScoreResult,
 } from "../protocol/boards.js";
 import type { GameDoc, GameDataScope } from "../protocol/gamedata.js";
-import type { WorldDoc } from "../protocol/worlds.js";
+import type { CoreWorld } from "../protocol/worlds.js";
 import type { ReplayBody, ReplayFrame, ReplayMeta, ReplayRef } from "../protocol/replays.js";
 import { decodeReplay, encodeReplay } from "./replayCodec.js";
 import type {
@@ -24,13 +24,15 @@ import type {
   WelcomeMessage,
   GameDataResultMessage,
   AssetUploadUrlResultMessage,
+  MediaUploadUrlResultMessage,
   ReplayResultMessage,
   RunGetResultMessage,
+  SegmentStartResultMessage,
   WorldListResultMessage,
   WorldGetResultMessage,
 } from "../protocol/messages.js";
 import { isPlatformToGameMessage } from "../protocol/guards.js";
-import { HardwareStore } from "./HardwareStore.js";
+import { HardwareStore, DEFAULT_POWER_TAU_S } from "./HardwareStore.js";
 import { createRelayRoom, createLoopbackRoom, type RoomRelayEvent, type RoomHandle } from "./Room.js";
 
 /** A canonical controller button event delivered to the game. */
@@ -57,6 +59,12 @@ export interface ConnectOptions {
   target?: Window;
   /** How long to wait for the shell's `welcome` before rejecting. Default 15000ms. */
   handshakeTimeoutMs?: number;
+  /**
+   * Power-smoothing time constant in seconds, used for {@link HardwareSnapshot.smoothedPower}.
+   * A code-level default the game may set. The manifest value (from `welcome`) wins over this;
+   * if neither is given, {@link DEFAULT_POWER_TAU_S} applies. 0 disables smoothing.
+   */
+  powerSmoothing?: number;
 }
 
 /** The live connection a game holds to the platform. */
@@ -65,7 +73,13 @@ export interface PlatformSession {
   readonly identity: ScopedIdentity;
   /** Capabilities the shell actually granted (subset of those requested). */
   readonly grantedCapabilities: readonly Capability[];
-  /** Deep-link path the game should route to on start, if the shell supplied one. */
+  /**
+   * Deep-link path the game should route to on start, if the shell supplied one.
+   *
+   * The shell mounts the game at `game.url/<tail>`, so this same tail is also the iframe's real
+   * URL. Your host MUST serve `index.html` for client routes (a SPA rewrite) or a direct
+   * hit/refresh of a projected route 404s before the game loads — see {@link setRoute}.
+   */
   readonly initialPath: string | undefined;
   /** Reactive bridged hardware state. */
   readonly hardware: HardwareStore;
@@ -104,6 +118,21 @@ export interface PlatformSession {
   saveRun(breakdown: unknown): void;
   /** Read back an opaque run breakdown by `runId` (e.g. a leaderboard entry's `runId`). `null` if absent. */
   getRun(runId: string): Promise<unknown | null>;
+
+  // ── Session segments (named moments within the shell's continuous ride recording) ──
+  /**
+   * Mark the start of a named moment (a level, a wave). The shell records the effort window
+   * (duration, avg/peak power, avg HR) on its own; you just supply the label. Resolves with the
+   * platform-clock start time. Best-effort: on an older shell this rejects on timeout, so callers
+   * should not depend on it (e.g. `startSegment(name).catch(() => {})`). Starting a new segment
+   * closes any still-open one.
+   */
+  startSegment(name: string): Promise<{ startedAt: number }>;
+  /**
+   * Close the current segment, attaching opaque game-specific stats (score, stars, kills…). The
+   * shell stores `data` as-is and stamps the computed effort. Fire-and-forget.
+   */
+  endSegment(data?: unknown): void;
 
   // ── Replays / ghosts (frame arrays keyed by runId; relayed through the shell) ──
   /**
@@ -155,11 +184,37 @@ export interface PlatformSession {
    */
   getUploadUrl(opts: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl: string; url: string }>;
 
+  // ── Highlights (capture moments → the shell's session gallery, shareable from the results screen) ──
+  /**
+   * Capture a still of the current moment and attach it to this session's recorded activity.
+   * `image` is your own canvas (or a `Blob`/data-URL you produced from it). Resolves with the public
+   * URL of the uploaded image.
+   *
+   * The shell uploads to R2 and links the shot to the session by `runId`, so it shows up on the
+   * post-game results screen and in activity history, where the player can share it.
+   *
+   * Caveat: a WebGL canvas reads back blank unless you either create the context with
+   * `preserveDrawingBuffer: true` or capture synchronously right after a render (in the same frame).
+   * Prefer a downscaled JPEG to keep the upload small.
+   */
+  captureMoment(image: Blob | HTMLCanvasElement | string, opts?: { label?: string }): Promise<string>;
+  /**
+   * Capture a short video clip of the moment and attach it to this session's recorded activity.
+   * Pass a finished video `Blob` — typically from `canvas.captureStream()` piped through a
+   * `MediaRecorder`. Resolves with the public URL of the uploaded clip.
+   *
+   * Tip: keep a short rolling `MediaRecorder` buffer while playing so a clip can include the few
+   * seconds *before* the moment. Cap duration (~3–6s) and downscale to keep clips small. Prefer
+   * `video/mp4` where the browser supports it (Safari) — `webm` (Chrome) shares poorly to some
+   * targets.
+   */
+  captureClip(video: Blob, opts?: { label?: string; durationMs?: number }): Promise<string>;
+
   // ── Worlds (shared, cross-game 3D environments authored in the platform world editor) ──
   /** List the platform's shared worlds (public read). */
-  listWorlds(): Promise<WorldDoc[]>;
+  listWorlds(): Promise<CoreWorld[]>;
   /** Fetch one shared world by id. `null` if absent. */
-  getWorld(id: string): Promise<WorldDoc | null>;
+  getWorld(id: string): Promise<CoreWorld | null>;
 
   /**
    * Join a realtime room (presence + relay + opaque shared state + trusted peer telemetry). The
@@ -168,7 +223,16 @@ export interface PlatformSession {
    */
   joinRoom(roomId: string): RoomHandle;
 
-  /** Tell the shell the game's internal route changed (for URL projection). */
+  /**
+   * Tell the shell the game's internal route changed (for URL projection). The shell projects
+   * `path` into the top URL as `game.url/<path>`, making it shareable and refreshable.
+   *
+   * Because the shell mounts the game at that real path, **your host must serve `index.html`
+   * for every route you project here** — a SPA rewrite (e.g. on Vercel,
+   * `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`). Without it, a direct
+   * hit or refresh of a projected route 404s on your origin before the game loads. Separate
+   * documents you link to (e.g. `editor.html`) stay real build inputs and are served directly.
+   */
   setRoute(path: string): void;
   /** Ask the shell to show/hide the trainerless power bar. Default is visible. */
   setPowerBar(visible: boolean): void;
@@ -214,9 +278,10 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
     platformOrigin = "*",
     target = window.parent,
     handshakeTimeoutMs = 15_000,
+    powerSmoothing,
   } = options;
 
-  const hardware = new HardwareStore();
+  const hardware = new HardwareStore(powerSmoothing ?? DEFAULT_POWER_TAU_S);
   const buttonListeners: Emitter<ButtonEvent> = new Set();
   const pauseListeners: Emitter<void> = new Set();
   const resumeListeners: Emitter<void> = new Set();
@@ -274,6 +339,45 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
       return r.blob ? { blob: r.blob, meta: r.meta ?? null } : null;
     });
 
+  // highlight helper: normalize the game's input to a Blob, ask the shell for a presigned R2 URL,
+  // PUT the bytes directly (keeping large video off postMessage), then notify the shell so it
+  // attaches the highlight to this session's recorded activity. Resolves with the public URL.
+  const extFor = (contentType: string, kind: "image" | "video"): string => {
+    const map: Record<string, string> = {
+      "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
+      "video/mp4": "mp4", "video/webm": "webm",
+    };
+    return map[contentType] ?? (kind === "video" ? "webm" : "png");
+  };
+  const toBlob = async (image: Blob | HTMLCanvasElement | string): Promise<Blob> => {
+    if (image instanceof Blob) return image;
+    if (typeof image === "string") return (await fetch(image)).blob(); // data: or object URL
+    // HTMLCanvasElement
+    const blob = await new Promise<Blob | null>((res) => image.toBlob((b) => res(b), "image/png"));
+    if (!blob) throw new Error("[rydr-sdk] captureMoment: canvas.toBlob returned null");
+    return blob;
+  };
+  const saveMedia = async (
+    source: Blob | HTMLCanvasElement | string,
+    kind: "image" | "video",
+    label?: string,
+    durationMs?: number,
+  ): Promise<string> => {
+    const blob = await toBlob(source);
+    const contentType = blob.type || (kind === "video" ? "video/webm" : "image/png");
+    const filename = `${kind}-${Date.now()}.${extFor(contentType, kind)}`;
+    const minted = await request<MediaUploadUrlResultMessage>((nonce) =>
+      post({ rydr: true, type: "rydr/media.uploadUrl", nonce, kind, filename, contentType }),
+    );
+    if (minted.error || !minted.uploadUrl || !minted.url) {
+      throw new Error(`[rydr-sdk] captureMoment: ${minted.error ?? "no upload url"}`);
+    }
+    const put = await fetch(minted.uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: blob });
+    if (!put.ok) throw new Error(`[rydr-sdk] captureMoment: upload failed (${put.status})`);
+    post({ rydr: true, type: "rydr/media.saved", url: minted.url, kind, label, t: Date.now(), durationMs });
+    return minted.url;
+  };
+
   return new Promise<PlatformSession>((resolve, reject) => {
     let settled = false;
     let identity: ScopedIdentity | null = null;
@@ -307,6 +411,8 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
           boards = welcome.boards ?? [];
           runId = welcome.runId ?? "";
           dataHost = welcome.dataHost ?? "";
+          // Manifest-configured smoothing wins over any ConnectOptions default.
+          if (welcome.powerSmoothing != null) hardware._setSmoothingTau(welcome.powerSmoothing);
           resolve(session);
           break;
         }
@@ -367,10 +473,16 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
         case "rydr/asset.uploadUrlResult":
           pending.get(msg.nonce)?.(msg);
           break;
+        case "rydr/media.uploadUrlResult":
+          pending.get(msg.nonce)?.(msg);
+          break;
         case "rydr/replay.result":
           pending.get(msg.nonce)?.(msg);
           break;
         case "rydr/run.result":
+          pending.get(msg.nonce)?.(msg);
+          break;
+        case "rydr/segment.startResult":
           pending.get(msg.nonce)?.(msg);
           break;
         case "rydr/world.listResult":
@@ -487,6 +599,14 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
           if (r.error) throw new Error(`[rydr-sdk] getRun: ${r.error}`);
           return r.breakdown ?? null;
         }),
+      startSegment: (name) =>
+        request<SegmentStartResultMessage>((nonce) =>
+          post({ rydr: true, type: "rydr/segment.start", nonce, name }),
+        ).then((r) => {
+          if (r.error) throw new Error(`[rydr-sdk] startSegment: ${r.error}`);
+          return { startedAt: r.startedAt };
+        }),
+      endSegment: (data) => post({ rydr: true, type: "rydr/segment.end", data }),
       listWorlds: () =>
         request<WorldListResultMessage>((nonce) =>
           post({ rydr: true, type: "rydr/world.list", nonce }),
@@ -563,6 +683,8 @@ export function connectToPlatform(options: ConnectOptions): Promise<PlatformSess
           if (r.error || !r.uploadUrl || !r.url) throw new Error(`[rydr-sdk] getUploadUrl: ${r.error ?? "no url"}`);
           return { uploadUrl: r.uploadUrl, url: r.url };
         }),
+      captureMoment: (image, opts) => saveMedia(image, "image", opts?.label),
+      captureClip: (video, opts) => saveMedia(video, "video", opts?.label, opts?.durationMs),
       joinRoom: (roomId) => {
         if (!identity) throw new Error("[rydr-sdk] joinRoom: session not established");
         // No shell-backed rooms (standalone dev / shell didn't advertise a backend) → loopback.

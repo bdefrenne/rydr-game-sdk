@@ -1,7 +1,7 @@
 /**
  * World types — a shared 3D environment authored in the platform world editor and loadable by
  * any game via `session.listWorlds()` / `session.getWorld(id)`. Mirrors the platform's
- * `PlatformWorld`/`CatalogItem` (the SDK can't import platform code). The on-disk format is a
+ * `CoreWorld`/`CatalogItem` (the SDK can't import platform code). The on-disk format is a
  * `MapDelta`: a base glb plus modifications and added objects (each referencing a glb by URL).
  */
 
@@ -46,7 +46,7 @@ export interface WorldEnv {
 }
 
 /** A platform world: a shared environment any game can load and render. */
-export interface WorldDoc {
+export interface CoreWorld {
   version: number;
   id: string;
   name: string;

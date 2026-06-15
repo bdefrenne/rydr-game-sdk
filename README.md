@@ -64,6 +64,8 @@ exists but defaults to ALL; you don't set it.)
 - `setSimulation(gradePercent)` · `setTargetPower(watts)` · `setErgMode(enabled)` — trainer control.
 - `setRoute(path)` · `setPowerBar(visible)` · `setMenu(visible)` · `requestExit()` · `requestHardwareModal()`.
 
+> **Deep links — your host must serve them.** The shell mounts the game at `game.url/<tail>`, so a route you project via `setRoute` (and the `initialPath` you read on load) is the iframe's *real* URL. A direct hit or refresh of e.g. `/game/<you>/play/abc` reaches your origin as `/play/abc` — with no rewrite it 404s before `index.html` loads. **Add a SPA rewrite** so client routes fall back to `index.html` (on Vercel: `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]`). Vercel applies rewrites only after a filesystem miss, so real documents (`index.html`, `editor.html`) and `/assets/*` are still served directly; the game then routes from `session.initialPath`.
+
 > **No activity/FIT API.** The platform records every session automatically from its own hardware stream — games do nothing for recording.
 
 - `boards: readonly BoardDefinition[]` · `runId: string` · `dataHost: string` — the game's leaderboard catalog (from its manifest), the run this session is recorded under, and the realtime backend host.
@@ -71,8 +73,19 @@ exists but defaults to ALL; you don't set it.)
 - `onButton(cb)` · `onPause(cb)` · `onResume(cb)` · `onIdentityChange(cb)` — each returns an unsubscribe fn.
 - `dispose()`.
 
-`HardwareSnapshot` = `{ power, cadence, heartRate, speed: number; trainerConnected, ergSupported: boolean; updatedAt: number }`
-— power W · cadence rpm · heartRate bpm (0 with no HRM) · speed m/s · updatedAt ms.
+`HardwareSnapshot` = `{ power, smoothedPower, cadence, heartRate, speed: number; trainerConnected, ergSupported: boolean; updatedAt: number }`
+— power W · smoothedPower W · cadence rpm · heartRate bpm (0 with no HRM) · speed m/s · updatedAt ms.
+
+**You get both `power` and `smoothedPower` — choose per use:**
+- **`power`** — raw, last reading only (steppy between the ~1–4Hz updates). Use for the true
+  instantaneous value: a watts readout, zone/metric math, logging, threshold checks.
+- **`smoothedPower`** — a time-based EMA over `power`, advanced on read so it ramps smoothly
+  between updates and is frame-rate independent. Use for anything you drive continuously off
+  power (a cursor, position, speed, fill bar) where raw jitter would look bad.
+
+The smoothing time constant (seconds) defaults to `DEFAULT_POWER_TAU_S` (0.06) and can be
+overridden per game via the manifest or `connectToPlatform({ powerSmoothing })`; `0` disables it.
+Both are read the same way, e.g. `session.hardware.current.smoothedPower`.
 
 `ButtonEvent` = `{ name: ButtonName; edge: "down" | "up" }` (see `protocol/buttons.ts` for the `ButtonName` union).
 
@@ -233,6 +246,14 @@ await applyWorld(scene, world, { loadGlb: (url) => loader.loadAsync(url).then((g
 ```
 
 Authoring worlds happens in the platform's editor (admin-gated), not in your game; your game only **reads** them.
+
+> **Building a 3D *world/level* editor for your game?** There's a shared editor core — `@rydr/core-world-editor`
+> (in `rydr-platform/src/core-world-editor`) — that gives you the map editor, camera, gizmo, and undo; your game
+> adds a small **capability** for its own gameplay layer (spawns, a grid, a route). The canonical how-to is
+> that package's [`README.md`](../rydr-platform/src/core-world-editor/README.md) — start there rather than hand-rolling
+> a three.js editor. **Convention:** ship it as `world-editor.html` → the canonical route **`/world-editor`**
+> (deep link `/game/<your-game>/world-editor`); a scenario/timeline editor is the sibling `/run-editor`.
+> (This SDK section is only about *loading* a world at runtime via `applyWorld`.)
 
 ### Realtime rooms
 

@@ -13,7 +13,7 @@ import type { ScopedIdentity } from "../protocol/identity.js";
 import type { ButtonName, ButtonEdge } from "../protocol/buttons.js";
 import type { BoardDefinition, LeaderboardPage, SubmitScoreResult } from "../protocol/boards.js";
 import type { GameDataScope, GameDoc } from "../protocol/gamedata.js";
-import type { WorldDoc } from "../protocol/worlds.js";
+import type { CoreWorld } from "../protocol/worlds.js";
 import type { ReplayMeta } from "../protocol/replays.js";
 import type { RoomMember, RoomTelemetry, RoomEvent } from "../protocol/room.js";
 import type { PlatformToGameMessage } from "../protocol/messages.js";
@@ -105,6 +105,9 @@ export interface PlatformHostOptions {
   runId?: string;
   /** The `rydr` backend host, handed over in `welcome` so the game can open realtime rooms. */
   dataHost?: string;
+  /** Per-game power-smoothing time constant (seconds) from the manifest, handed over in
+   *  `welcome`. Omit to let the SDK use its default. */
+  powerSmoothing?: number;
 
   onReady?(): void;
   onLoadProgress?(progress: number): void;
@@ -126,6 +129,10 @@ export interface PlatformHostOptions {
   onGameData?(op: GameDataOp): Promise<GameDataResult>;
   /** The game requested a presigned upload URL for a binary asset; mint and return it. */
   onGetUploadUrl?(req: { collection: string; filename: string; contentType?: string }): Promise<{ uploadUrl?: string; url?: string; error?: string }>;
+  /** The game requested a presigned upload URL for a captured highlight (still/clip); mint and return it. */
+  onSaveMedia?(req: { kind: "image" | "video"; filename: string; contentType?: string }): Promise<{ uploadUrl?: string; url?: string; error?: string }>;
+  /** The game finished uploading a highlight; attach it to this session's recorded activity. */
+  onMediaSaved?(item: { url: string; kind: "image" | "video"; label?: string; t: number; durationMs?: number }): void;
   /** The game saved a replay/ghost blob (base64) + derived {@link ReplayMeta} keyed by `runId`;
    *  persist both. */
   onSaveReplay?(runId: string, blob: string, meta: ReplayMeta): Promise<{ ok?: boolean; error?: string }>;
@@ -133,10 +140,14 @@ export interface PlatformHostOptions {
   onGetReplay?(runId: string): Promise<{ blob?: string | null; meta?: ReplayMeta | null; error?: string }>;
   /** The game requested a stored run breakdown by `runId`; fetch and return it. */
   onGetRun?(runId: string): Promise<{ breakdown?: unknown; error?: string }>;
+  /** The game opened a named segment; open it on the shell's recording and return its start time. */
+  onSegmentStart?(name: string): Promise<{ startedAt: number; error?: string }> | { startedAt: number; error?: string };
+  /** The game closed the current segment, attaching opaque game-specific stats. */
+  onSegmentEnd?(data: unknown): void;
   /** The game asked for the platform's shared worlds; fetch and return them (public read). */
-  onListWorlds?(): Promise<{ worlds?: WorldDoc[]; error?: string }>;
+  onListWorlds?(): Promise<{ worlds?: CoreWorld[]; error?: string }>;
   /** The game asked for one world by id; fetch and return it (`null` if absent). */
-  onGetWorld?(id: string): Promise<{ world?: WorldDoc | null; error?: string }>;
+  onGetWorld?(id: string): Promise<{ world?: CoreWorld | null; error?: string }>;
   /**
    * The game joined a realtime room. The shell opens/owns the socket, injects trusted telemetry,
    * and pushes events back through `sink`; it returns a {@link RoomController} the host uses to
@@ -200,6 +211,7 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           boards: options.boards,
           runId: options.runId,
           dataHost: options.dataHost,
+          powerSmoothing: options.powerSmoothing,
         });
         const status = hardware.getStatus();
         post({ rydr: true, type: "rydr/trainer.status", connected: status.connected, ergSupported: status.ergSupported });
@@ -307,6 +319,21 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           });
         break;
       }
+      case "rydr/media.uploadUrl": {
+        const { nonce } = msg;
+        const handler =
+          options.onSaveMedia ?? (async (): Promise<{ error: string }> => ({ error: "media capture not supported" }));
+        void handler({ kind: msg.kind, filename: msg.filename, contentType: msg.contentType })
+          .then((r) => post({ rydr: true, type: "rydr/media.uploadUrlResult", nonce, ...r }))
+          .catch((err) => {
+            console.error("[rydr-host] media.uploadUrl failed:", err);
+            post({ rydr: true, type: "rydr/media.uploadUrlResult", nonce, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/media.saved":
+        options.onMediaSaved?.({ url: msg.url, kind: msg.kind, label: msg.label, t: msg.t, durationMs: msg.durationMs });
+        break;
       case "rydr/replay.save": {
         const { nonce } = msg;
         const handler =
@@ -343,6 +370,20 @@ export function createPlatformHost(options: PlatformHostOptions): PlatformHost {
           });
         break;
       }
+      case "rydr/segment.start": {
+        const { nonce } = msg;
+        const handler = options.onSegmentStart ?? ((): { startedAt: number; error?: string } => ({ startedAt: 0 }));
+        void Promise.resolve(handler(msg.name))
+          .then((r) => post({ rydr: true, type: "rydr/segment.startResult", nonce, startedAt: r.startedAt, error: r.error }))
+          .catch((err) => {
+            console.error("[rydr-host] segment.start failed:", err);
+            post({ rydr: true, type: "rydr/segment.startResult", nonce, startedAt: 0, error: String(err) });
+          });
+        break;
+      }
+      case "rydr/segment.end":
+        options.onSegmentEnd?.(msg.data);
+        break;
       case "rydr/world.list": {
         const { nonce } = msg;
         const handler =

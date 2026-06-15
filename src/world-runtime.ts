@@ -1,5 +1,5 @@
 /**
- * applyWorld — render a {@link WorldDoc} into a three.js scene (or any compatible object graph).
+ * applyWorld — render a {@link CoreWorld} into a three.js scene (or any compatible object graph).
  *
  * Exported from the SDK's main entry, but with **zero** dependency on `three`: it only *manipulates*
  * objects your `loadGlb` returns (set transforms, add to the target, traverse) — it never constructs
@@ -11,7 +11,7 @@
  *   const loadGlb = (url) => loader.loadAsync(url).then(g => g.scene);
  *   await applyWorld(scene, await session.getWorld(id), { loadGlb });
  */
-import type { WorldDoc } from "./protocol/worlds.js";
+import type { CoreWorld } from "./protocol/worlds.js";
 
 interface Vec3Like {
   fromArray(array: ArrayLike<number>, offset?: number): unknown;
@@ -37,7 +37,7 @@ export interface ApplyWorldOptions {
 /** Populate `target` with the world's base map (+ its modifications) and placed objects. */
 export async function applyWorld(
   target: Object3DLike,
-  world: WorldDoc,
+  world: CoreWorld,
   opts: ApplyWorldOptions,
 ): Promise<void> {
   const { map } = world;
